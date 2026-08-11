@@ -3,7 +3,7 @@ import argparse
 import numpy as np, pickle
 from pyimzml.ImzMLParser import ImzMLParser
 from scipy.stats import rankdata
-from msi_io import RunConfig, add_run_dir_args, read_binary_array
+from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array
 
 
 def main():
@@ -14,13 +14,26 @@ def main():
     cfg = RunConfig(args.run_dir, args.out, args.targets)
     TARGETS = cfg.targets
     NTOP, HALFWIN, GRID = cfg.ntop, cfg.halfwin, cfg.grid
+    have_P, have_C = cfg.has_profile, cfg.has_centroid
 
-    P = ImzMLParser(str(cfg.imzml_path("Profile Mode")))
-    C = ImzMLParser(str(cfg.imzml_path("Centroid Mode")))
-    bP = np.memmap(P.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r')
-    bC = np.memmap(C.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r')
-    cP = [(c[0], c[1]) for c in P.coordinates]; cmap = {(c[0], c[1]): i for i, c in enumerate(C.coordinates)}
-    pk = np.load(cfg.out("peak_prof.npy"))
+    P = ImzMLParser(str(cfg.imzml_path("Profile Mode"))) if have_P else None
+    C = ImzMLParser(str(cfg.imzml_path("Centroid Mode"))) if have_C else None
+    bP = np.memmap(P.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r') if have_P else None
+    bC = np.memmap(C.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r') if have_C else None
+    cP = [(c[0], c[1]) for c in P.coordinates] if have_P else []
+    cC = [(c[0], c[1]) for c in C.coordinates] if have_C else []
+
+    # Rank/select pixels using whichever mode has per-pixel intensities from
+    # pass1; prefer profile when both exist, so both-mode output is unchanged.
+    rank_is_profile = have_P
+    rank_coords = cP if rank_is_profile else cC
+    pk = np.load(cfg.out("peak_prof.npy" if rank_is_profile else "peak_cent.npy"))
+    # rank-mode pixel coordinate -> the OTHER mode's own pixel index (only
+    # meaningful when both modes are present; the rank mode is indexed directly)
+    cmap = {}
+    if have_P and have_C:
+        other_coords = cC if rank_is_profile else cP
+        cmap = {xy: i for i, xy in enumerate(other_coords)}
 
     # pixels must have signal (above the configured floor) for all targets
     ok = (pk > cfg.intensity_floor).all(axis=0)
@@ -49,14 +62,18 @@ def main():
         grid = np.arange(T - HALFWIN, T + HALFWIN, GRID); acc = np.zeros_like(grid); n1 = 0
         smzs = []; sits = []; n2 = 0
         for k in sel:
-            mz, it = getspec(P, bP, k)
-            a = np.searchsorted(mz, T - HALFWIN); b = np.searchsorted(mz, T + HALFWIN)
-            if b - a > 2: acc += np.interp(grid, mz[a:b], it[a:b], left=0, right=0); n1 += 1
-            j = cmap.get(cP[k])
-            if j is not None:
-                mzc, itc = getspec(C, bC, j)
-                a2 = np.searchsorted(mzc, T - HALFWIN); b2 = np.searchsorted(mzc, T + HALFWIN)
-                if b2 > a2: smzs.append(mzc[a2:b2]); sits.append(itc[a2:b2]); n2 += 1
+            if have_P:
+                pidx = k if rank_is_profile else cmap.get(rank_coords[k])
+                if pidx is not None:
+                    mz, it = getspec(P, bP, pidx)
+                    a = np.searchsorted(mz, T - HALFWIN); b = np.searchsorted(mz, T + HALFWIN)
+                    if b - a > 2: acc += np.interp(grid, mz[a:b], it[a:b], left=0, right=0); n1 += 1
+            if have_C:
+                cidx = k if not rank_is_profile else cmap.get(rank_coords[k])
+                if cidx is not None:
+                    mzc, itc = getspec(C, bC, cidx)
+                    a2 = np.searchsorted(mzc, T - HALFWIN); b2 = np.searchsorted(mzc, T + HALFWIN)
+                    if b2 > a2: smzs.append(mzc[a2:b2]); sits.append(itc[a2:b2]); n2 += 1
         prof = acc / max(n1, 1)
         smz = np.concatenate(smzs) if smzs else np.array([]); sit = np.concatenate(sits) if sits else np.array([])
         o = np.argsort(smz); smz = smz[o]; sit = sit[o]
@@ -68,11 +85,14 @@ def main():
             cm.append(np.average(smz[i:j + 1], weights=w) if w.sum() > 0 else smz[i:j + 1].mean())
             ci.append(w.sum() / max(n2, 1)); cn.append(j - i + 1); i = j + 1
         out[T] = dict(grid=grid, prof=prof, cmz=np.array(cm), cit=np.array(ci), cn=np.array(cn),
-                      nprof=n1, ncent=n2, pixels=[cP[k] for k in sel])
+                      nprof=n1, ncent=n2, modes=cfg.modes, pixels=[rank_coords[k] for k in sel])
     pickle.dump(out, open(cfg.out("spectra_common.pkl"), "wb"))
-    pickle.dump([cP[k] for k in sel], open(cfg.out("common_pixels.pkl"), "wb"))
+    pickle.dump([rank_coords[k] for k in sel], open(cfg.out("common_pixels.pkl"), "wb"))
     print("SAVED")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RunConfigError as e:
+        raise SystemExit(str(e))

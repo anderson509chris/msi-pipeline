@@ -2,7 +2,7 @@ import warnings; warnings.filterwarnings("ignore")
 import argparse, time
 import numpy as np, pickle
 from pyimzml.ImzMLParser import ImzMLParser
-from msi_io import RunConfig, add_run_dir_args, read_binary_array
+from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array
 
 
 def main():
@@ -44,4 +44,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RunConfigError as e:
+        raise SystemExit(str(e))

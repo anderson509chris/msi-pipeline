@@ -3,9 +3,14 @@
 A "run folder" is expected to look like:
 
     <run_dir>/
-        Profile Mode/<name>.imzML (+ .ibd)
-        Centroid Mode/<name>.imzML (+ .ibd)
+        Profile Mode/<name>.imzML (+ .ibd)     \\_ at least one of these two
+        Centroid Mode/<name>.imzML (+ .ibd)    /   must be present and usable
         targets.json        (optional, see DEFAULT_TARGETS below)
+
+Alternatively, if neither subfolder exists, <run_dir> may directly contain a
+single .imzML + .ibd pair with no wrapper subfolder at all - the acquisition
+mode is then auto-detected from the file's own declared spectrum
+representation (profile vs centroid), not from folder naming.
 
 All intermediate/output artifacts (peak_*.npy, spectra*.pkl, metrics*.pkl,
 figures, CSVs) are written to <run_dir>/output/ by default, or to --out if given.
@@ -15,6 +20,15 @@ import os
 from pathlib import Path
 
 import numpy as np
+from pyimzml.ImzMLParser import ImzMLParser
+
+MODES = ("Profile Mode", "Centroid Mode")
+
+
+class RunConfigError(Exception):
+    """Raised for anything wrong with a run folder or its targets config.
+    Callers (CLI entry points, the Streamlit GUI) catch this to show a clean
+    message instead of a stack trace / hard process exit."""
 
 
 def read_binary_array(buf, offset, n_elements, precision):
@@ -24,6 +38,49 @@ def read_binary_array(buf, offset, n_elements, precision):
     p.mzPrecision / p.intensityPrecision here rather than assuming float32."""
     itemsize = np.dtype(precision).itemsize
     return buf[offset:offset + n_elements * itemsize].view(precision)
+
+
+def _find_imzml_files(d):
+    """.imzML files directly in d, case-insensitively, deduplicated by resolved
+    path (globbing both *.imzML and *.imzml double-counts on case-insensitive
+    filesystems otherwise). Skips hidden dotfiles - pathlib's "*" glob matches
+    them even though shell globs don't, and macOS silently creates hidden
+    "._name.imzML" AppleDouble companion files when data is copied from a
+    USB drive, external disk, or network share, which would otherwise look
+    like a second, ambiguous .imzML file and wrongly flag the folder as broken."""
+    matches = {f.resolve() for f in d.glob("*.imzML") if not f.name.startswith(".")} \
+        | {f.resolve() for f in d.glob("*.imzml") if not f.name.startswith(".")}
+    return sorted(matches)
+
+
+def _find_sibling_ibd(imzml_path):
+    """The .ibd file sharing imzml_path's stem, matched case-insensitively on
+    the extension since acquisition software isn't consistent about casing."""
+    for f in imzml_path.parent.iterdir():
+        if f.is_file() and f.stem == imzml_path.stem and f.suffix.lower() == ".ibd":
+            return f
+    return None
+
+
+def mode_status(mode_dir):
+    """Classify one acquisition-mode folder (e.g. <run>/Profile Mode):
+      ("absent", None)       - folder doesn't exist: fine, degrade to the other mode
+      ("broken", reason)     - folder exists but isn't usable: caller must raise, not degrade
+      ("ok", imzml_path)     - exactly one .imzML with a matching .ibd
+    Shared by RunConfig (which raises on "broken") and run_pipeline.has_modes
+    (which only needs the ok/not-ok distinction) so the two can't drift apart."""
+    if not mode_dir.is_dir():
+        return "absent", None
+    imzmls = _find_imzml_files(mode_dir)
+    if not imzmls:
+        return "broken", f"{mode_dir} exists but contains no .imzML file"
+    if len(imzmls) > 1:
+        return "broken", f"{mode_dir} contains multiple .imzML files, expected exactly one: {imzmls}"
+    ibd = _find_sibling_ibd(imzmls[0])
+    if ibd is None:
+        return "broken", f"{imzmls[0]} has no matching .ibd file (expected {imzmls[0].with_suffix('.ibd')})"
+    return "ok", imzmls[0]
+
 
 # Fallback target list, used only if a run folder has no targets.json.
 DEFAULT_TARGETS = {
@@ -43,7 +100,7 @@ class RunConfig:
     def __init__(self, run_dir, out_dir=None, targets_path=None):
         self.run_dir = Path(run_dir).expanduser().resolve()
         if not self.run_dir.is_dir():
-            raise SystemExit(f"run folder not found: {self.run_dir}")
+            raise RunConfigError(f"run folder not found: {self.run_dir}")
         self.out_dir = Path(out_dir).expanduser().resolve() if out_dir else self.run_dir / "output"
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,27 +126,101 @@ class RunConfig:
         self.ppm = p.get("ppm", defaults["ppm"])
         self.intensity_floor = p.get("intensity_floor", defaults["intensity_floor"])
 
+        self._detect_modes()
+
+    def _detect_modes(self):
+        """A mode folder is either absent (fine, we degrade to the other mode)
+        or present-and-broken (not fine - raise, never silently drop data).
+        Only an absent folder is allowed to mean 'not usable'."""
+        self._mode_paths = {}
+        broken = []
+        for mode in MODES:
+            status, info = mode_status(self.run_dir / mode)
+            if status == "ok":
+                self._mode_paths[mode] = info
+            elif status == "broken":
+                broken.append(info)
+
+        if broken:
+            raise RunConfigError("; ".join(broken))
+
+        if not self._mode_paths:
+            # Neither 'Profile Mode' nor 'Centroid Mode' subfolder exists at
+            # all - fall back to a flat layout where run_dir itself directly
+            # holds one .imzML + .ibd pair, mode auto-detected from content.
+            status, info = mode_status(self.run_dir)
+            if status == "broken":
+                raise RunConfigError(info)
+            if status == "ok":
+                mode = self._sniff_mode(info)
+                if mode is None:
+                    raise RunConfigError(
+                        f"{info} doesn't declare whether it's profile or centroid data "
+                        f"(no 'profile spectrum' / 'centroid spectrum' cvParam found) - "
+                        f"put it in a 'Profile Mode' or 'Centroid Mode' subfolder instead"
+                    )
+                self._mode_paths[mode] = info
+
+        if not self._mode_paths:
+            raise RunConfigError(
+                f"no usable acquisition-mode data found in {self.run_dir} "
+                f"(expected a 'Profile Mode' and/or 'Centroid Mode' subfolder, "
+                f"each with exactly one .imzML file and a matching .ibd; or a single "
+                f".imzML + .ibd pair directly in the folder)"
+            )
+        self.modes = tuple(m for m in MODES if m in self._mode_paths)
+        self.has_profile = "Profile Mode" in self._mode_paths
+        self.has_centroid = "Centroid Mode" in self._mode_paths
+
+    @staticmethod
+    def _sniff_mode(imzml_path):
+        """Auto-detect profile vs centroid from the file's own declared
+        spectrum representation, for a flat-layout .imzML with no
+        'Profile Mode'/'Centroid Mode' wrapper folder to name it. Returns
+        None if the file doesn't declare one clearly (caller then raises,
+        rather than guessing)."""
+        try:
+            p = ImzMLParser(str(imzml_path))
+        except Exception as e:
+            raise RunConfigError(f"could not read {imzml_path}: {e}")
+        try:
+            if p.spectrum_mode == "profile":
+                return "Profile Mode"
+            if p.spectrum_mode == "centroid":
+                return "Centroid Mode"
+            return None
+        finally:
+            if p.m is not None:
+                p.m.close()
+
+    def mode_banner(self):
+        if self.has_profile and self.has_centroid:
+            return "Profile Mode and Centroid Mode found. All metrics available."
+        if self.has_profile:
+            return ("Profile Mode only - no Centroid Mode folder found in this run. "
+                    "Peak shape metrics (FWHM, resolving power, profile mass error) are available; "
+                    "centroid mass error, stick overlay, and peak-count-in-window are not.")
+        return ("Centroid Mode only - no Profile Mode folder found in this run. "
+                "Centroid mass error and stick overlay are available; "
+                "FWHM, resolving power, profile mass error, and area fraction are not "
+                "(these require the profile peak shape).")
+
     def mode_dir(self, mode):
-        d = self.run_dir / mode
-        if not d.is_dir():
-            raise SystemExit(f"mode folder not found: {d}")
-        return d
+        if mode not in self._mode_paths:
+            raise RunConfigError(f"mode not available in this run: {mode}")
+        return self._mode_paths[mode].parent
 
     def imzml_path(self, mode):
-        d = self.mode_dir(mode)
-        matches = sorted(d.glob("*.imzML")) or sorted(d.glob("*.imzml"))
-        if not matches:
-            raise SystemExit(f"no .imzML file found in {d}")
-        if len(matches) > 1:
-            raise SystemExit(f"multiple .imzML files found in {d}, expected exactly one: {matches}")
-        return matches[0]
+        if mode not in self._mode_paths:
+            raise RunConfigError(f"mode not available in this run: {mode}")
+        return self._mode_paths[mode]
 
     def out(self, filename):
         return str(self.out_dir / filename)
 
 
 def add_run_dir_args(parser, targets_default=True):
-    parser.add_argument("run_dir", help="Path to a data-run folder (contains 'Profile Mode' / 'Centroid Mode' subfolders)")
+    parser.add_argument("run_dir", help="Path to a data-run folder (a usable 'Profile Mode' and/or 'Centroid Mode' subfolder)")
     parser.add_argument("--out", default=None, help="Output folder (default: <run_dir>/output)")
     if targets_default:
         parser.add_argument("--targets", default=None, help="Path to a targets.json (default: <run_dir>/targets.json, else built-in defaults)")

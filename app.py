@@ -14,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from msi_io import DEFAULT_TARGETS
-from run_pipeline import clean_out_dir, discover_runs, stage_commands
+from msi_io import DEFAULT_TARGETS, MODES, RunConfig, RunConfigError
+from run_pipeline import clean_out_dir, stage_commands
 
 HERE = Path(__file__).resolve().parent
 
@@ -62,6 +62,32 @@ with col2:
             path_str = chosen
 st.session_state.path_str = path_str
 
+def looks_like_run(p):
+    """A folder worth showing in the picker: has at least one of the two mode
+    subfolders present, or directly holds a .imzML file itself (flat layout,
+    mode auto-detected from content), whether or not it turns out to be
+    usable. Broader than RunConfig's own "usable" check on purpose - a
+    present-but-broken mode folder should show up as an error row, not
+    vanish from the list."""
+    if any((p / m).is_dir() for m in MODES):
+        return True
+    return bool(next(p.glob("*.imzML"), None) or next(p.glob("*.imzml"), None))
+
+
+def discover_candidates(base_path):
+    if looks_like_run(base_path):
+        return [base_path]
+    return sorted(c for c in base_path.iterdir() if c.is_dir() and looks_like_run(c))
+
+
+def mode_badge(cfg):
+    if cfg.has_profile and cfg.has_centroid:
+        return "🟢 both modes"
+    if cfg.has_profile:
+        return "🟡 profile only"
+    return "🟡 centroid only"
+
+
 runs = []
 base_path = None
 if path_str:
@@ -69,19 +95,30 @@ if path_str:
     if not base_path.is_dir():
         st.error(f"Not a folder: {base_path}")
     else:
-        try:
-            runs = discover_runs(base_path)
-        except SystemExit as e:
-            st.error(str(e))
+        runs = discover_candidates(base_path)
+        if not runs:
+            st.error(f"No run folders found at or under {base_path} "
+                     f"(expected a 'Profile Mode' and/or 'Centroid Mode' subfolder, "
+                     f"or a folder directly holding a .imzML + .ibd pair)")
 
 selected_runs = []
+run_cfgs = {}
 if runs:
-    st.caption(f"Found {len(runs)} run folder(s) (each needs a 'Profile Mode' and 'Centroid Mode' subfolder):")
+    st.caption(f"Found {len(runs)} run folder(s):")
     for r in runs:
-        label = r.name if r != base_path else r.name
-        checked = st.checkbox(label, value=True, key=f"sel_{r}")
+        try:
+            run_cfgs[r] = RunConfig(r, None, None)
+        except RunConfigError as e:
+            st.error(f"{r.name}: {e}")
+            continue
+        cfg_r = run_cfgs[r]
+        checked = st.checkbox(f"{r.name}  —  {mode_badge(cfg_r)}", value=True, key=f"sel_{r}")
         if checked:
             selected_runs.append(r)
+            if cfg_r.has_profile and cfg_r.has_centroid:
+                st.info(cfg_r.mode_banner())
+            else:
+                st.warning(cfg_r.mode_banner())
 
 # --- targets ---------------------------------------------------------
 st.subheader("2. Target m/z list")
@@ -134,18 +171,30 @@ if run_clicked:
     targets_path = Path(tempfile.mkdtemp()) / "targets.json"
     targets_path.write_text(json.dumps(targets_payload, indent=2))
 
-    total_stages = len(selected_runs) * len(stage_commands(selected_runs[0], None, targets_path, show_metrics_box))
+    # Stage count varies per run (single-mode runs skip one pass1 stage), so
+    # build each run's command list up front rather than assuming a uniform count.
+    stage_lists = {}
+    for run_dir in selected_runs:
+        try:
+            stage_lists[run_dir] = stage_commands(run_dir, None, targets_path, show_metrics_box, cfg=run_cfgs.get(run_dir))
+        except RunConfigError as e:
+            st.error(f"{run_dir.name}: {e}")
+    total_stages = sum(len(v) for v in stage_lists.values())
     done = 0
     progress = st.progress(0.0)
-    failures = []
+    failures = [r for r in selected_runs if r not in stage_lists]
 
     for run_dir in selected_runs:
+        if run_dir not in stage_lists:
+            continue
         st.markdown(f"**{run_dir.name}**")
+        if run_dir in run_cfgs:
+            st.caption(run_cfgs[run_dir].mode_banner())
         clean_out_dir(run_dir, None)
         log_box = st.empty()
         lines = []
         run_failed = False
-        for label, cmd in stage_commands(run_dir, None, targets_path, show_metrics_box):
+        for label, cmd in stage_lists[run_dir]:
             lines.append(f"── {label} ──")
             log_box.code("\n".join(lines[-60:]))
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

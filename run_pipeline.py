@@ -1,8 +1,12 @@
 """Chain pass1 -> common -> pass2 -> metrics -> plot across one run folder, or every
 run folder found under a parent directory of data runs.
 
-A "run folder" is any directory containing both a 'Profile Mode' and a 'Centroid
-Mode' subfolder (each holding one .imzML + .ibd pair). Point this at either:
+A "run folder" is any directory containing a usable 'Profile Mode' and/or
+'Centroid Mode' subfolder (each holding one .imzML + .ibd pair) - either one
+alone is enough to process a run, with reduced metrics; see RunConfig.mode_banner().
+It may also directly hold a single .imzML + .ibd pair with no wrapper
+subfolder, in which case the mode is auto-detected from the file itself.
+Point this at either:
   - a single run folder, or
   - a parent folder holding many run folders (each processed in turn)
 
@@ -16,11 +20,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from msi_io import MODES, RunConfig, RunConfigError, mode_status
+
 HERE = Path(__file__).resolve().parent
 
 
 def has_modes(p):
-    return (p / "Profile Mode").is_dir() and (p / "Centroid Mode").is_dir()
+    """True if at least one acquisition-mode subfolder of p is usable, or p
+    itself directly holds a usable .imzML + .ibd pair (flat layout, mode
+    auto-detected from content - see RunConfig._detect_modes). Does not raise
+    on a present-but-broken mode folder - that only matters once a run is
+    actually selected for processing, where RunConfig raises loudly for it."""
+    if any(mode_status(p / m)[0] == "ok" for m in MODES):
+        return True
+    return mode_status(p)[0] == "ok"
 
 
 def resolve_out_dir(run_dir, out_dir):
@@ -40,20 +53,29 @@ def discover_runs(path):
         return [path]
     candidates = sorted(c for c in path.iterdir() if c.is_dir() and has_modes(c))
     if not candidates:
-        raise SystemExit(f"no run folders ('Profile Mode' + 'Centroid Mode') found at or under {path}")
+        raise SystemExit(f"no run folders (with a usable 'Profile Mode' and/or 'Centroid Mode' subfolder) found at or under {path}")
     return candidates
 
 
-def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True):
+def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, cfg=None):
     """The ordered (label, cmd) pairs that make up one full run. Shared by the
-    CLI driver below and the Streamlit GUI (app.py), so both stay in sync."""
+    CLI driver below and the Streamlit GUI (app.py), so both stay in sync.
+    Pass1 only runs for modes actually present; common/pass2/metrics/plot
+    always run, operating on whatever pass1 output exists. Raises
+    RunConfigError (via RunConfig) if run_dir isn't a usable/valid run folder."""
+    if cfg is None:
+        cfg = RunConfig(run_dir, out_dir, targets_path)
     tail = []
     if out_dir: tail += ["--out", str(out_dir)]
     if targets_path: tail += ["--targets", str(targets_path)]
     box_flag = [] if show_metrics_box else ["--no-metrics-box"]
 
-    return [
-        ("pass1 (Profile Mode)", [sys.executable, str(HERE / "pass1.py"), str(run_dir), "Profile Mode", "prof"] + tail),
+    cmds = []
+    if cfg.has_profile:
+        cmds.append(("pass1 (Profile Mode)", [sys.executable, str(HERE / "pass1.py"), str(run_dir), "Profile Mode", "prof"] + tail))
+    if cfg.has_centroid:
+        cmds.append(("pass1 (Centroid Mode)", [sys.executable, str(HERE / "pass1.py"), str(run_dir), "Centroid Mode", "cent"] + tail))
+    cmds += [
         ("common", [sys.executable, str(HERE / "common.py"), str(run_dir)] + tail),
         ("pass2", [sys.executable, str(HERE / "pass2.py"), str(run_dir)] + tail),
         ("metrics", [sys.executable, str(HERE / "metrics.py"), str(run_dir)] + tail),
@@ -62,6 +84,7 @@ def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True):
         ("plot (common)", [sys.executable, str(HERE / "plot_c.py"), str(run_dir)] + tail + box_flag),
         ("plot (common, clean)", [sys.executable, str(HERE / "plot_cc.py"), str(run_dir)] + tail),
     ]
+    return cmds
 
 
 def run(cmd):
@@ -71,7 +94,9 @@ def run(cmd):
 
 def process_run(run_dir, out_dir, targets_path, show_metrics_box=True):
     clean_out_dir(run_dir, out_dir)
-    for _label, cmd in stage_commands(run_dir, out_dir, targets_path, show_metrics_box):
+    cfg = RunConfig(run_dir, out_dir, targets_path)
+    print(cfg.mode_banner(), flush=True)
+    for _label, cmd in stage_commands(run_dir, out_dir, targets_path, show_metrics_box, cfg=cfg):
         run(cmd)
 
 
@@ -96,7 +121,7 @@ def main():
     for r in runs:
         try:
             process_run(r, out_dir, args.targets, show_metrics_box=not args.no_metrics_box)
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, RunConfigError) as e:
             print(f"!!! run failed: {r} ({e})", file=sys.stderr)
             failed.append(r)
             if not args.keep_going:

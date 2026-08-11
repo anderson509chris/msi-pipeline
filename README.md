@@ -35,11 +35,36 @@ acquisition, laid out like this:
     targets.json          (optional — see below)
 ```
 
-Each mode folder must contain exactly one `.imzML` + `.ibd` pair.
+**Either mode folder alone is enough to process a run.** A folder that's
+simply not there is fine — the pipeline runs on whichever mode is present,
+with a reduced set of metrics available (see the table below). A folder
+that *is* there but unusable (no `.imzML`, more than one `.imzML`, or a
+`.imzML` with no matching `.ibd`) is treated as an error, not as "absent" —
+the run refuses to process rather than silently dropping half its data.
+Each present mode folder must contain exactly one `.imzML` + `.ibd` pair.
+
+Every stage prints a mode banner at the start of a run (and the GUI shows it
+as an info/warning box) stating which mode(s) were found and what that costs,
+e.g. *"Profile Mode only - no Centroid Mode folder found in this run. Peak
+shape metrics (FWHM, resolving power, profile mass error) are available;
+centroid mass error, stick overlay, and peak-count-in-window are not."*
+
+| Metric | Needs Profile Mode | Needs Centroid Mode |
+|---|:---:|:---:|
+| Apex m/z, FWHM, resolving power | ✅ | |
+| Profile centroid m/z, profile mass error | ✅ | |
+| Area fraction within tolerance window | ✅ | |
+| Centroid-mode m/z, centroid mass error | | ✅ |
+| Stick overlay, nearest-neighbour peak, peaks-in-window count | | ✅ |
+| `n_pixels_above_intensity_floor` | ✅ (or Centroid Mode if Profile Mode absent) | |
+
+When a metric's required mode is missing, its CSV columns are `NaN` and the
+row's `warning` column explains why (`"profile mode not available"` /
+`"no centroid peak detected near target"`).
 
 You can also point the pipeline at a **parent folder containing several run
-folders** — it auto-discovers every subfolder that has both `Profile Mode`
-and `Centroid Mode`, and processes each one in turn.
+folders** — it auto-discovers every subfolder with a usable `Profile Mode`
+and/or `Centroid Mode` subfolder, and processes each one in turn.
 
 ## 3. Running the GUI
 
@@ -131,4 +156,18 @@ Everything lands in `<run_dir>/output/`:
 | `Fig_S1c_common_ROI_clean.png/pdf` | Common-ROI figure, no metrics text box |
 | `spectrum_mz*.png`, `commonROI_mz*.png`, `commonROIclean_mz*.png` | Individual per-target panels |
 | `peak_metrics*.csv` | Apex m/z, FWHM, resolving power, mass error, etc. per target |
-| `spectra*.pkl`, `metrics*.pkl`, `peak_prof.npy`, `coords_prof.pkl`, `common_pixels.pkl` | Intermediate data, re-used by later stages |
+| `spectra*.pkl`, `metrics*.pkl`, `peak_prof.npy`, `peak_cent.npy`, `coords_prof.pkl`, `coords_cent.pkl`, `common_pixels.pkl` | Intermediate data, re-used by later stages (`peak_prof.npy`/`peak_cent.npy` only exist for modes actually present) |
+
+## 7. Tests
+
+```bash
+source .venv/bin/activate
+python3 -m unittest discover -s tests -v
+```
+
+Covers profile-only, centroid-only, and both-modes runs against small
+hand-written synthetic `.imzML`/`.ibd` fixtures (`tests/imzml_fixtures.py`,
+no extra dependencies), checking that each completes, that `NaN` shows up in
+exactly the fields that mode is missing, that a present-but-broken mode
+folder raises instead of silently degrading, and that both 32-bit and
+64-bit `.imzML` precision are read correctly.
