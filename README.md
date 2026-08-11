@@ -105,14 +105,14 @@ Drop this in a run folder to override which m/z values are extracted and how
   "sample_name": "My Sample",
   "instrument_desc": "Orbitrap MALDI-MSI, negative ion mode",
   "targets": [
-    {"mz": 140.0118, "name": "Phosphoethanolamine", "formula_tex": "C$_2$H$_8$NO$_4$P", "formula_plain": "C2H8NO4P"},
-    {"mz": 146.0459, "name": "Glutamate", "formula_tex": "C$_5$H$_9$NO$_4$", "formula_plain": "C5H9NO4"}
+    {"mz": 140.0118, "name": "Phosphoethanolamine", "formula_plain": "C2H8NO4P"},
+    {"mz": 146.0459, "name": "Glutamate", "formula_plain": "C5H9NO4"}
   ],
   "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0}
 }
 ```
 
-- `targets` — list of m/z values to extract. `name`/`formula_*` are only
+- `targets` — list of m/z values to extract. `name`/`formula_plain` are only
   used for figure labels and the CSV; `mz` is required.
 - `params.ntop` — number of highest-intensity pixels averaged per target.
 - `params.halfwin` — half-width (Da) of the profile spectrum window plotted/extracted around each target.

@@ -93,8 +93,7 @@ st.session_state.targets_df = st.data_editor(
     column_config={
         "mz": st.column_config.NumberColumn("m/z", format="%.4f", required=True),
         "name": st.column_config.TextColumn("Name"),
-        "formula_tex": st.column_config.TextColumn("Formula (LaTeX, optional)"),
-        "formula_plain": st.column_config.TextColumn("Formula (plain)"),
+        "formula_plain": st.column_config.TextColumn("Formula"),
     },
 )
 
