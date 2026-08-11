@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+
+# per-run data & generated artifacts (these live inside data-run folders elsewhere,
+# but ignore them here too in case a run folder ever ends up under this repo)
+output/
+*.imzML
+*.ibd
+*.pkl
+*.npy

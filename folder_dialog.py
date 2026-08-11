@@ -1,0 +1,32 @@
+"""Native folder picker, run as its own subprocess (see app.py's browse_folder).
+
+Runs standalone rather than in-process because:
+  1. Tkinter GUI calls must happen on a real main thread; Streamlit reruns
+     scripts on a worker thread, so calling tkinter in-process crashes on macOS.
+  2. A bare `python -c ...` process isn't the frontmost app, so its window
+     opens behind whatever you were looking at (the browser). We explicitly
+     activate it via System Events so the dialog actually gets focus.
+
+Prints the chosen path to stdout (empty line if cancelled).
+"""
+import os
+import subprocess
+import tkinter as tk
+from tkinter import filedialog
+
+root = tk.Tk()
+root.withdraw()
+root.attributes("-topmost", True)
+
+try:
+    subprocess.run(
+        ["osascript", "-e",
+         f'tell application "System Events" to set frontmost of the first process whose unix id is {os.getpid()} to true'],
+        capture_output=True, timeout=5,
+    )
+except Exception:
+    pass  # not macOS, or osascript unavailable — dialog still opens, just may not be focused
+
+folder = filedialog.askdirectory(title="Select a data folder")
+root.destroy()
+print(folder or "")

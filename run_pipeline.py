@@ -1,0 +1,114 @@
+"""Chain pass1 -> common -> pass2 -> metrics -> plot across one run folder, or every
+run folder found under a parent directory of data runs.
+
+A "run folder" is any directory containing both a 'Profile Mode' and a 'Centroid
+Mode' subfolder (each holding one .imzML + .ibd pair). Point this at either:
+  - a single run folder, or
+  - a parent folder holding many run folders (each processed in turn)
+
+Examples:
+  python run_pipeline.py "/data/EpCtrl-4-1_2_S2_SM_Neg_20240306_IT"
+  python run_pipeline.py "/data/all_runs" --keep-going
+"""
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+
+def has_modes(p):
+    return (p / "Profile Mode").is_dir() and (p / "Centroid Mode").is_dir()
+
+
+def resolve_out_dir(run_dir, out_dir):
+    return Path(out_dir) if out_dir else Path(run_dir) / "output"
+
+
+def clean_out_dir(run_dir, out_dir):
+    """Wipe any previous output before a fresh run. Every artifact here is a
+    full regeneration from the current target list, nothing is ever merged
+    across runs — so without this, per-target files (spectrum_mz*.png, etc.)
+    from an earlier run with a different/longer target list just linger
+    alongside the new ones instead of being replaced."""
+    d = resolve_out_dir(run_dir, out_dir)
+    if d.is_dir():
+        shutil.rmtree(d)
+
+
+def discover_runs(path):
+    if has_modes(path):
+        return [path]
+    candidates = sorted(c for c in path.iterdir() if c.is_dir() and has_modes(c))
+    if not candidates:
+        raise SystemExit(f"no run folders ('Profile Mode' + 'Centroid Mode') found at or under {path}")
+    return candidates
+
+
+def stage_commands(run_dir, out_dir, targets_path):
+    """The ordered (label, cmd) pairs that make up one full run. Shared by the
+    CLI driver below and the Streamlit GUI (app.py), so both stay in sync."""
+    tail = []
+    if out_dir: tail += ["--out", str(out_dir)]
+    if targets_path: tail += ["--targets", str(targets_path)]
+
+    return [
+        ("pass1 (Profile Mode)", [sys.executable, str(HERE / "pass1.py"), str(run_dir), "Profile Mode", "prof"] + tail),
+        ("common", [sys.executable, str(HERE / "common.py"), str(run_dir)] + tail),
+        ("pass2", [sys.executable, str(HERE / "pass2.py"), str(run_dir)] + tail),
+        ("metrics", [sys.executable, str(HERE / "metrics.py"), str(run_dir)] + tail),
+        ("metrics (common)", [sys.executable, str(HERE / "metrics.py"), str(run_dir), "--common"] + tail),
+        ("plot", [sys.executable, str(HERE / "plot.py"), str(run_dir)] + tail),
+        ("plot (common)", [sys.executable, str(HERE / "plot_c.py"), str(run_dir)] + tail),
+        ("plot (common, clean)", [sys.executable, str(HERE / "plot_cc.py"), str(run_dir)] + tail),
+    ]
+
+
+def run(cmd):
+    print(f"\n>>> {' '.join(cmd)}", flush=True)
+    subprocess.run(cmd, check=True)
+
+
+def process_run(run_dir, out_dir, targets_path):
+    clean_out_dir(run_dir, out_dir)
+    for _label, cmd in stage_commands(run_dir, out_dir, targets_path):
+        run(cmd)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("path", help="A single run folder, or a parent folder containing multiple run folders")
+    ap.add_argument("--out", default=None, help="Output folder for a single run (default: <run_dir>/output). Ignored when processing multiple runs (each uses <run_dir>/output).")
+    ap.add_argument("--targets", default=None, help="targets.json to use for every run processed (default: each run's own <run_dir>/targets.json, else built-in defaults)")
+    ap.add_argument("--keep-going", action="store_true", help="If one run folder fails, continue with the rest instead of stopping")
+    args = ap.parse_args()
+
+    path = Path(args.path).expanduser().resolve()
+    if not path.is_dir():
+        raise SystemExit(f"not a folder: {path}")
+    runs = discover_runs(path)
+    print(f"found {len(runs)} run folder(s):")
+    for r in runs: print(f"  {r}")
+
+    out_dir = args.out if len(runs) == 1 else None
+    failed = []
+    for r in runs:
+        try:
+            process_run(r, out_dir, args.targets)
+        except subprocess.CalledProcessError as e:
+            print(f"!!! run failed: {r} ({e})", file=sys.stderr)
+            failed.append(r)
+            if not args.keep_going:
+                raise SystemExit(1)
+
+    if failed:
+        print(f"\n{len(failed)} of {len(runs)} run(s) failed:")
+        for r in failed: print(f"  {r}")
+        raise SystemExit(1)
+    print(f"\nall {len(runs)} run(s) completed.")
+
+
+if __name__ == "__main__":
+    main()
