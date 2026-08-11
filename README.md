@@ -1,7 +1,6 @@
 # MSI Pipeline
 
-Extracts and characterizes specific m/z targets from MALDI mass-spec imaging
-(MSI) data. For each target it finds the highest-intensity pixels, averages
+Extracts and characterizes specific m/z targets from MALDI mass-spec imaging data. For each target it finds the highest-intensity pixels, averages
 their raw profile spectrum and centroided peak list, computes peak-shape
 metrics (apex, FWHM, resolving power, mass error, etc.), and produces
 figures + a CSV summary.

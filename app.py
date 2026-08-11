@@ -32,11 +32,7 @@ if "path_str" not in st.session_state:
 
 def browse_folder():
     """Opens a native folder picker in a separate process (folder_dialog.py).
-    Tkinter's GUI calls are only safe on a real main thread; Streamlit reruns
-    scripts on a worker thread, so calling tkinter in-process crashes on macOS.
-    That script also activates itself via System Events so the dialog opens in
-    the foreground instead of behind the browser. Only works for local use
-    (server and browser on the same machine)."""
+    Only works for local use (server and browser on the same machine)."""
     try:
         result = subprocess.run(
             [sys.executable, str(HERE / "folder_dialog.py")],

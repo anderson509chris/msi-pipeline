@@ -5,7 +5,7 @@ A "run folder" is expected to look like:
     <run_dir>/
         Profile Mode/<name>.imzML (+ .ibd)
         Centroid Mode/<name>.imzML (+ .ibd)
-        targets.json        (optional, see DEFAULT_TARGETS below for the schema)
+        targets.json        (optional, see DEFAULT_TARGETS below)
 
 All intermediate/output artifacts (peak_*.npy, spectra*.pkl, metrics*.pkl,
 figures, CSVs) are written to <run_dir>/output/ by default, or to --out if given.
@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 
 # Fallback target list, used only if a run folder has no targets.json.
-# Matches the original hardcoded EpCtrl-4-1_2_S2_SM_Neg_20240306_IT study.
 DEFAULT_TARGETS = {
     "sample_name": "EpCtrl-4-1_2_S2_SM_Neg_20240306_IT",
     "instrument_desc": "Orbitrap MALDI-MSI, negative ion mode, m/z 70–500  ·  142 × 308 px, 20 µm  ·  lock mass 157.07712",
@@ -23,7 +22,7 @@ DEFAULT_TARGETS = {
         {"mz": 140.0118, "name": "Phosphoethanolamine", "formula_tex": "C$_2$H$_8$NO$_4$P", "formula_plain": "C2H8NO4P"},
         {"mz": 146.0459, "name": "Glutamate", "formula_tex": "C$_5$H$_9$NO$_4$", "formula_plain": "C5H9NO4"},
         {"mz": 151.0261, "name": "Xanthine", "formula_tex": "C$_5$H$_4$N$_4$O$_2$", "formula_plain": "C5H4N4O2"},
-        {"mz": 215.0328, "name": "Pentitol phosphate", "formula_tex": "C$_5$H$_{13}$O$_7$P", "formula_plain": "C5H13O7P"},
+        {"mz": 215.0328, "name": "Glucose", "formula_tex": "C$_5$H$_{13}$O$_7$P", "formula_plain": "C5H13O7P"},
     ],
     "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0},
 }

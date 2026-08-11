@@ -7,7 +7,7 @@ Mode' subfolder (each holding one .imzML + .ibd pair). Point this at either:
   - a parent folder holding many run folders (each processed in turn)
 
 Examples:
-  python run_pipeline.py "/data/EpCtrl-4-1_2_S2_SM_Neg_20240306_IT"
+  python run_pipeline.py "/data/Neg_20240306"
   python run_pipeline.py "/data/all_runs" --keep-going
 """
 import argparse
@@ -29,10 +29,7 @@ def resolve_out_dir(run_dir, out_dir):
 
 def clean_out_dir(run_dir, out_dir):
     """Wipe any previous output before a fresh run. Every artifact here is a
-    full regeneration from the current target list, nothing is ever merged
-    across runs — so without this, per-target files (spectrum_mz*.png, etc.)
-    from an earlier run with a different/longer target list just linger
-    alongside the new ones instead of being replaced."""
+    full regeneration from the current target list."""
     d = resolve_out_dir(run_dir, out_dir)
     if d.is_dir():
         shutil.rmtree(d)
