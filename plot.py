@@ -10,7 +10,7 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 8, "axes.linewid
 CP = "#1f4e79"; CC = "#c0392b"; CB = "#f2b705"
 
 
-def panel(axL, axR, T, letter, d, mt):
+def panel(axL, axR, T, letter, d, mt, show_box=True):
     s = d[T]; m = mt[T]; g = s["grid"]; y = s["prof"]
     tol = T * 3e-6
     ymax = m["ymax"]
@@ -41,20 +41,23 @@ def panel(axL, axR, T, letter, d, mt):
     axR.set_title("zoom ±25 ppm", loc="left", fontsize=7.5, color="0.35", pad=4)
     axL.text(.985, .96, f"±0.06 Da window · n = {s['nprof']} pixels\ngrey = same trace ×100 (baseline check)",
              transform=axL.transAxes, ha="right", va="top", fontsize=6.6, color="0.35", linespacing=1.5)
-    txt = (f"centroid  {m['cmz']:.4f}  ({m['ppm_cent']:+.2f} ppm)\n"
-           f"FWHM  {m['fwhm'] * 1000:.2f} mDa   R = {m['R']:,.0f}\n"
-           f"peaks in ±3 ppm: {m['n_in_window']}   nearest other peak: {m['nb_ppm']:,.0f} ppm")
-    axR.text(.02, .96, txt, transform=axR.transAxes, ha="left", va="top", fontsize=6.6,
-             color="0.15", linespacing=1.5,
-             bbox=dict(fc="white", ec="0.8", lw=.5, boxstyle="round,pad=0.35", alpha=.92))
+    if show_box:
+        txt = (f"centroid  {m['cmz']:.4f}  ({m['ppm_cent']:+.2f} ppm)\n"
+               f"FWHM  {m['fwhm'] * 1000:.2f} mDa   R = {m['R']:,.0f}\n"
+               f"peaks in ±3 ppm: {m['n_in_window']}   nearest other peak: {m['nb_ppm']:,.0f} ppm")
+        axR.text(.02, .96, txt, transform=axR.transAxes, ha="left", va="top", fontsize=6.6,
+                 color="0.15", linespacing=1.5,
+                 bbox=dict(fc="white", ec="0.8", lw=.5, boxstyle="round,pad=0.35", alpha=.92))
 
 
 def main():
     ap = argparse.ArgumentParser(description="Plot Fig S1: raw profile waveform vs centroid sticks, over each target's own top-N pixels.")
     add_run_dir_args(ap)
+    ap.add_argument("--no-metrics-box", action="store_true", help="Hide the FWHM/R/peak-count text box on each panel")
     args = ap.parse_args()
     cfg = RunConfig(args.run_dir, args.out, args.targets)
     TARGETS = cfg.targets
+    show_box = not args.no_metrics_box
 
     d = pickle.load(open(cfg.out("spectra.pkl"), "rb")); mt = pickle.load(open(cfg.out("metrics.pkl"), "rb"))
 
@@ -69,7 +72,7 @@ def main():
                      "Gold band = ±3 ppm integration window.   Dashed line = theoretical m/z.",
             fontsize=7.6, va="top", color="0.3", linespacing=1.7)
     for i, (T, L) in enumerate(zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")):
-        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt)
+        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt, show_box=show_box)
     fig.savefig(cfg.out("Fig_S1_profile_vs_centroid.pdf"))
     fig.savefig(cfg.out("Fig_S1_profile_vs_centroid.png"), dpi=300)
     plt.close(fig)
@@ -78,20 +81,20 @@ def main():
     for T, L in zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
         f = plt.figure(figsize=(9.4, 3.3))
         g2 = f.add_gridspec(1, 2, width_ratios=[1.35, 1], wspace=.22, left=.085, right=.98, top=.85, bottom=.17)
-        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt)
+        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt, show_box=show_box)
         f.savefig(cfg.out(f"spectrum_mz{T:.4f}.png"), dpi=300); plt.close(f)
 
     with open(cfg.out("peak_metrics.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["assignment", "formula_neutral", "ion", "theoretical_mz", "profile_apex_mz",
+        w.writerow(["assignment", "theoretical_mz", "profile_apex_mz",
                     "profile_centroid_mz", "profile_mass_error_ppm", "centroid_mode_mz", "centroid_mass_error_ppm",
                     "FWHM_mDa", "resolving_power", "frac_peak_area_within_3ppm", "n_centroid_peaks_within_3ppm",
                     "nearest_other_real_peak_ppm", "nearest_other_rel_intensity", "n_pixels_averaged",
                     "pixels_with_signal"])
         pk = np.load(cfg.out("peak_prof.npy"))
         for i, T in enumerate(TARGETS):
-            m = mt[T]; nm = cfg.names[T]; _, fp = cfg.formulas[T]
-            w.writerow([nm, fp, "[M-H]-", f"{T:.4f}", f"{m['apex']:.5f}", f"{m['pcen']:.5f}",
+            m = mt[T]; nm = cfg.names[T]
+            w.writerow([nm, f"{T:.4f}", f"{m['apex']:.5f}", f"{m['pcen']:.5f}",
                         f"{m['ppm_prof']:+.2f}", f"{m['cmz']:.5f}", f"{m['ppm_cent']:+.2f}",
                         f"{m['fwhm'] * 1000:.2f}", f"{m['R']:.0f}", f"{m['areafrac']:.3f}", m['n_in_window'],
                         f"{m['nb_ppm']:.1f}", f"{m['nb_it'] / m['cit']:.5f}", m['nprof'], int((pk[i] > 0).sum())])

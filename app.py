@@ -105,6 +105,12 @@ with st.expander("Advanced parameters"):
     st.session_state.params["grid"] = c3.number_input("Grid spacing (Da)", value=float(st.session_state.params["grid"]), format="%.6f")
     st.session_state.params["ppm"] = c4.number_input("PPM tolerance (pass1)", value=float(st.session_state.params["ppm"]))
 
+show_metrics_box = st.checkbox(
+    "Show metrics box (centroid, FWHM, R, peak count) on graphs",
+    value=st.session_state.get("show_metrics_box", True),
+)
+st.session_state.show_metrics_box = show_metrics_box
+
 # --- run ---------------------------------------------------------
 st.subheader("3. Run")
 run_clicked = st.button("Run pipeline", type="primary", disabled=not selected_runs)
@@ -124,7 +130,7 @@ if run_clicked:
     targets_path = Path(tempfile.mkdtemp()) / "targets.json"
     targets_path.write_text(json.dumps(targets_payload, indent=2))
 
-    total_stages = len(selected_runs) * len(stage_commands(selected_runs[0], None, targets_path))
+    total_stages = len(selected_runs) * len(stage_commands(selected_runs[0], None, targets_path, show_metrics_box))
     done = 0
     progress = st.progress(0.0)
     failures = []
@@ -135,7 +141,7 @@ if run_clicked:
         log_box = st.empty()
         lines = []
         run_failed = False
-        for label, cmd in stage_commands(run_dir, None, targets_path):
+        for label, cmd in stage_commands(run_dir, None, targets_path, show_metrics_box):
             lines.append(f"── {label} ──")
             log_box.code("\n".join(lines[-60:]))
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

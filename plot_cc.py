@@ -77,15 +77,15 @@ def main():
 
     with open(cfg.out("peak_metrics_commonROIclean.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["assignment", "formula_neutral", "ion", "theoretical_mz", "profile_apex_mz",
+        w.writerow(["assignment", "theoretical_mz", "profile_apex_mz",
                     "profile_centroid_mz", "profile_mass_error_ppm", "centroid_mode_mz", "centroid_mass_error_ppm",
                     "FWHM_mDa", "resolving_power", "frac_peak_area_within_3ppm", "n_centroid_peaks_within_3ppm",
                     "nearest_other_real_peak_ppm", "nearest_other_rel_intensity", "n_pixels_averaged",
                     "pixels_with_signal"])
         pk = np.load(cfg.out("peak_prof.npy"))
         for i, T in enumerate(TARGETS):
-            m = mt[T]; nm = cfg.names[T]; _, fp = cfg.formulas[T]
-            w.writerow([nm, fp, "[M-H]-", f"{T:.4f}", f"{m['apex']:.5f}", f"{m['pcen']:.5f}",
+            m = mt[T]; nm = cfg.names[T]
+            w.writerow([nm, f"{T:.4f}", f"{m['apex']:.5f}", f"{m['pcen']:.5f}",
                         f"{m['ppm_prof']:+.2f}", f"{m['cmz']:.5f}", f"{m['ppm_cent']:+.2f}",
                         f"{m['fwhm'] * 1000:.2f}", f"{m['R']:.0f}", f"{m['areafrac']:.3f}", m['n_in_window'],
                         f"{m['nb_ppm']:.1f}", f"{m['nb_it'] / m['cit']:.5f}", m['nprof'], int((pk[i] > 0).sum())])
