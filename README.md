@@ -1,4 +1,4 @@
-# MSI Pipeline
+# imzML-peakcheck
 
 Extracts and characterizes specific m/z targets from MALDI mass-spec imaging data. For each target it finds the highest-intensity pixels, averages
 their raw profile spectrum and centroided peak list, computes peak-shape
@@ -12,8 +12,8 @@ Runs either from the command line or through a Streamlit GUI.
 Requires Python 3.10+.
 
 ```bash
-git clone https://github.com/anderson509chris/msi-pipeline.git
-cd msi-pipeline
+git clone https://github.com/anderson509chris/imzml-peakcheck.git
+cd imzml-peakcheck
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
