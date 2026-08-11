@@ -19,7 +19,7 @@ from run_pipeline import clean_out_dir, discover_runs, stage_commands
 
 HERE = Path(__file__).resolve().parent
 
-st.set_page_config(page_title="MSI Pipeline", layout="wide")
+st.set_page_config(page_title="imzML Peakchecker", layout="wide")
 st.title("imzML Peakchecker target extraction")
 
 if "targets_df" not in st.session_state:
