@@ -98,11 +98,16 @@ st.session_state.targets_df = st.data_editor(
 )
 
 with st.expander("Advanced parameters"):
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     st.session_state.params["ntop"] = c1.number_input("Top-N pixels", min_value=1, value=int(st.session_state.params["ntop"]), step=10)
     st.session_state.params["halfwin"] = c2.number_input("Half window (Da)", value=float(st.session_state.params["halfwin"]), format="%.4f")
     st.session_state.params["grid"] = c3.number_input("Grid spacing (Da)", value=float(st.session_state.params["grid"]), format="%.6f")
     st.session_state.params["ppm"] = c4.number_input("PPM tolerance (pass1)", value=float(st.session_state.params["ppm"]))
+    st.session_state.params["intensity_floor"] = c5.number_input(
+        "Intensity floor (counts)", min_value=0.0,
+        value=float(st.session_state.params.get("intensity_floor", 0.0)),
+        help="Pixels at or below this raw intensity are treated as noise and excluded from top-N selection and pixel counts.",
+    )
 
 show_metrics_box = st.checkbox(
     "Show metrics box (centroid, FWHM, R, peak count) on graphs",

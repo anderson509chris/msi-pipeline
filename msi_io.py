@@ -14,6 +14,17 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
+
+
+def read_binary_array(buf, offset, n_elements, precision):
+    """Read n_elements starting at offset (bytes) from an .ibd memmap/buffer,
+    using the array's declared imzML precision ('f' = 32-bit, 'd' = 64-bit float).
+    Reading as the wrong width silently returns garbage, so always pass
+    p.mzPrecision / p.intensityPrecision here rather than assuming float32."""
+    itemsize = np.dtype(precision).itemsize
+    return buf[offset:offset + n_elements * itemsize].view(precision)
+
 # Fallback target list, used only if a run folder has no targets.json.
 DEFAULT_TARGETS = {
     "sample_name": "EpCtrl-4-1_2_S2_SM_Neg_20240306_IT",
@@ -24,7 +35,7 @@ DEFAULT_TARGETS = {
         {"mz": 151.0261, "name": "Xanthine", "formula_plain": "C5H4N4O2"},
         {"mz": 215.0328, "name": "Glucose", "formula_plain": "C5H13O7P"},
     ],
-    "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0},
+    "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0, "intensity_floor": 0.0},
 }
 
 
@@ -56,6 +67,7 @@ class RunConfig:
         self.halfwin = p.get("halfwin", defaults["halfwin"])
         self.grid = p.get("grid", defaults["grid"])
         self.ppm = p.get("ppm", defaults["ppm"])
+        self.intensity_floor = p.get("intensity_floor", defaults["intensity_floor"])
 
     def mode_dir(self, mode):
         d = self.run_dir / mode

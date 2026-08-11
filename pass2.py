@@ -2,7 +2,7 @@ import warnings; warnings.filterwarnings("ignore")
 import argparse
 import numpy as np, pickle
 from pyimzml.ImzMLParser import ImzMLParser
-from msi_io import RunConfig, add_run_dir_args
+from msi_io import RunConfig, add_run_dir_args, read_binary_array
 
 
 def main():
@@ -25,14 +25,14 @@ def main():
 
     def getspec(p, buf, k):
         mo, ml = p.mzOffsets[k], p.mzLengths[k]; io, il = p.intensityOffsets[k], p.intensityLengths[k]
-        mz = np.array(buf[mo:mo + ml * 4].view(np.float32), dtype=np.float64)
-        it = np.array(buf[io:io + il * 4].view(np.float32), dtype=np.float64)
+        mz = np.array(read_binary_array(buf, mo, ml, p.mzPrecision), dtype=np.float64)
+        it = np.array(read_binary_array(buf, io, il, p.intensityPrecision), dtype=np.float64)
         return mz, it
 
     out = {}
     for ti, T in enumerate(TARGETS):
         order = np.argsort(peakP[ti])[::-1][:NTOP]
-        order = [k for k in order if peakP[ti, k] > 0]
+        order = [k for k in order if peakP[ti, k] > cfg.intensity_floor]
         grid = np.arange(T - HALFWIN, T + HALFWIN, GRID)
         acc = np.zeros_like(grid); nprof = 0
         sticks_mz = []; sticks_it = []; ncent = 0

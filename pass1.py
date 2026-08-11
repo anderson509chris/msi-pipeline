@@ -2,7 +2,7 @@ import warnings; warnings.filterwarnings("ignore")
 import argparse, time
 import numpy as np, pickle
 from pyimzml.ImzMLParser import ImzMLParser
-from msi_io import RunConfig, add_run_dir_args
+from msi_io import RunConfig, add_run_dir_args, read_binary_array
 
 
 def main():
@@ -22,17 +22,18 @@ def main():
     peak = np.zeros((len(TARGETS), n), dtype=np.float32)
     mzo = np.array(p.mzOffsets); mzl = np.array(p.mzLengths)
     io = np.array(p.intensityOffsets)
+    it_itemsize = np.dtype(p.intensityPrecision).itemsize
     t0 = time.time()
     for k in range(n):
         L = mzl[k]
         if L == 0: continue
         o = mzo[k]
-        mz = buf[o:o + L * 4].view(np.float32)
+        mz = read_binary_array(buf, o, L, p.mzPrecision)
         for ti, T in enumerate(TARGETS):
             tol = T * PPM * 1e-6
             a = np.searchsorted(mz, T - tol); b = np.searchsorted(mz, T + tol)
             if b > a:
-                peak[ti, k] = buf[io[k] + a * 4:io[k] + b * 4].view(np.float32).max()
+                peak[ti, k] = read_binary_array(buf, io[k] + a * it_itemsize, b - a, p.intensityPrecision).max()
         if k % 4000 == 0: print(k, round(time.time() - t0, 1), flush=True)
     print(args.tag, "DONE", round(time.time() - t0, 1), flush=True)
     np.save(cfg.out(f"peak_{args.tag}.npy"), peak)

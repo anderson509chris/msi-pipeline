@@ -10,9 +10,9 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 8, "axes.linewid
 CP = "#1f4e79"; CC = "#c0392b"; CB = "#f2b705"
 
 
-def panel(axL, axR, T, letter, d, mt):
+def panel(axL, axR, T, letter, d, mt, ppm):
     s = d[T]; m = mt[T]; g = s["grid"]; y = s["prof"]
-    tol = T * 3e-6
+    tol = T * ppm * 1e-6
     ymax = m["ymax"]
     for ax, halfppm in ((axL, None), (axR, 25)):
         if halfppm is None:
@@ -60,10 +60,10 @@ def main():
             fontsize=13, fontweight="bold", va="top")
     hd.text(0, .34, f"{cfg.sample_name}  ·  {cfg.instrument_desc}\n"
                      "Blue = mean raw profile spectrum over ONE common set of top-N pixels (same scans in all panels).   Red sticks = mean centroided peak list (non-zero) over the same pixels.\n"
-                     "Gold band = ±3 ppm integration window.   Dashed line = theoretical m/z.",
+                     f"Gold band = ±{cfg.ppm:g} ppm integration window.   Dashed line = theoretical m/z.",
             fontsize=7.6, va="top", color="0.3", linespacing=1.7)
     for i, (T, L) in enumerate(zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")):
-        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt)
+        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt, cfg.ppm)
     fig.savefig(cfg.out("Fig_S1c_common_ROI_clean.pdf"))
     fig.savefig(cfg.out("Fig_S1c_common_ROI_clean.png"), dpi=300)
     plt.close(fig)
@@ -72,23 +72,24 @@ def main():
     for T, L in zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
         f = plt.figure(figsize=(9.4, 3.3))
         g2 = f.add_gridspec(1, 2, width_ratios=[1.35, 1], wspace=.22, left=.085, right=.98, top=.85, bottom=.17)
-        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt)
+        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt, cfg.ppm)
         f.savefig(cfg.out(f"commonROIclean_mz{T:.4f}.png"), dpi=300); plt.close(f)
 
     with open(cfg.out("peak_metrics_commonROIclean.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["assignment", "theoretical_mz", "profile_apex_mz",
                     "profile_centroid_mz", "profile_mass_error_ppm", "centroid_mode_mz", "centroid_mass_error_ppm",
-                    "FWHM_mDa", "resolving_power", "frac_peak_area_within_3ppm", "n_centroid_peaks_within_3ppm",
+                    "FWHM_mDa", "resolving_power", f"frac_peak_area_within_{cfg.ppm:g}ppm", f"n_centroid_peaks_within_{cfg.ppm:g}ppm",
                     "nearest_other_real_peak_ppm", "nearest_other_rel_intensity", "n_pixels_averaged",
-                    "pixels_with_signal"])
+                    "n_pixels_above_intensity_floor", "warning"])
         pk = np.load(cfg.out("peak_prof.npy"))
         for i, T in enumerate(TARGETS):
             m = mt[T]; nm = cfg.names[T]
             w.writerow([nm, f"{T:.4f}", f"{m['apex']:.5f}", f"{m['pcen']:.5f}",
                         f"{m['ppm_prof']:+.2f}", f"{m['cmz']:.5f}", f"{m['ppm_cent']:+.2f}",
                         f"{m['fwhm'] * 1000:.2f}", f"{m['R']:.0f}", f"{m['areafrac']:.3f}", m['n_in_window'],
-                        f"{m['nb_ppm']:.1f}", f"{m['nb_it'] / m['cit']:.5f}", m['nprof'], int((pk[i] > 0).sum())])
+                        f"{m['nb_ppm']:.1f}", f"{m['nb_it'] / m['cit']:.5f}", m['nprof'],
+                        int((pk[i] > cfg.intensity_floor).sum()), m.get("warning", "")])
     print("OK")
 
 

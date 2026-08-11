@@ -3,7 +3,7 @@ import argparse
 import numpy as np, pickle
 from pyimzml.ImzMLParser import ImzMLParser
 from scipy.stats import rankdata
-from msi_io import RunConfig, add_run_dir_args
+from msi_io import RunConfig, add_run_dir_args, read_binary_array
 
 
 def main():
@@ -22,8 +22,8 @@ def main():
     cP = [(c[0], c[1]) for c in P.coordinates]; cmap = {(c[0], c[1]): i for i, c in enumerate(C.coordinates)}
     pk = np.load(cfg.out("peak_prof.npy"))
 
-    # pixels must have signal for all targets
-    ok = (pk > 0).all(axis=0)
+    # pixels must have signal (above the configured floor) for all targets
+    ok = (pk > cfg.intensity_floor).all(axis=0)
     print("pixels with all", len(TARGETS), "detected:", ok.sum(), "of", pk.shape[1])
     # percentile rank within the qualifying pixels, per metabolite
     R = np.zeros((len(TARGETS), pk.shape[1]))
@@ -41,8 +41,8 @@ def main():
 
     def getspec(p, buf, k):
         mo, ml = p.mzOffsets[k], p.mzLengths[k]; io, il = p.intensityOffsets[k], p.intensityLengths[k]
-        return (np.array(buf[mo:mo + ml * 4].view(np.float32), dtype=np.float64),
-                np.array(buf[io:io + il * 4].view(np.float32), dtype=np.float64))
+        return (np.array(read_binary_array(buf, mo, ml, p.mzPrecision), dtype=np.float64),
+                np.array(read_binary_array(buf, io, il, p.intensityPrecision), dtype=np.float64))
 
     out = {}
     for ti, T in enumerate(TARGETS):

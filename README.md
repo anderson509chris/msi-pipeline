@@ -108,7 +108,7 @@ Drop this in a run folder to override which m/z values are extracted and how
     {"mz": 140.0118, "name": "Phosphoethanolamine", "formula_plain": "C2H8NO4P"},
     {"mz": 146.0459, "name": "Glutamate", "formula_plain": "C5H9NO4"}
   ],
-  "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0}
+  "params": {"ntop": 100, "halfwin": 0.06, "grid": 1e-5, "ppm": 3.0, "intensity_floor": 0.0}
 }
 ```
 
@@ -117,7 +117,8 @@ Drop this in a run folder to override which m/z values are extracted and how
 - `params.ntop` — number of highest-intensity pixels averaged per target.
 - `params.halfwin` — half-width (Da) of the profile spectrum window plotted/extracted around each target.
 - `params.grid` — resampling grid spacing (Da) for averaging profile spectra.
-- `params.ppm` — tolerance (ppm) used in pass1 to detect a target's peak in each pixel.
+- `params.ppm` — tolerance (ppm) used throughout (pass1 peak detection, `metrics.py` integration window, plot gold band).
+- `params.intensity_floor` — raw-intensity counts a pixel must exceed to count toward top-N selection and the CSV's `n_pixels_above_intensity_floor` column. Default `0` (any nonzero signal counts); raise it to your instrument's noise floor so absent targets show as absent (NaN metrics, `warning` column set) instead of an averaged noise spectrum that looks like real data.
 
 ## 6. Output
 
