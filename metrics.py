@@ -28,13 +28,18 @@ def main():
         warn = []
 
         # --- profile-side: apex, FWHM, resolving power, profile centroid, area fraction ---
-        # "unavailable" covers both a genuinely absent Profile Mode folder (nprof
-        # always 0 in that case, see pass2.py/common.py) and a target with no
-        # signal at all above the intensity floor - the mirror of the empty-
-        # centroid case below.
-        has_profile_data = s.get("nprof", 0) > 0 and y.max() > 0
+        # Two distinct causes give an empty profile trace, and they mean very
+        # different things to a user: the mode folder genuinely isn't part of
+        # this run (nothing to investigate) vs. the mode is present but this
+        # particular target has no signal above the intensity floor (a real,
+        # possibly-interesting absence). Report them separately rather than
+        # conflating both into "profile mode not available", which sends
+        # someone with perfectly good profile data looking for a folder
+        # problem that doesn't exist.
+        has_profile_mode = "Profile Mode" in modes
+        has_profile_data = has_profile_mode and s.get("nprof", 0) > 0 and y.max() > 0
         if not has_profile_data:
-            warn.append("profile mode not available")
+            warn.append("profile mode not available" if not has_profile_mode else "no profile signal above intensity floor")
             apex = np.nan; ymax = np.nan; fwhm = np.nan; R = np.nan; pcen = np.nan
             ppm_prof = np.nan; areafrac = np.nan
         else:
@@ -73,9 +78,9 @@ def main():
             areafrac = area_in / area_pk if (not np.isnan(area_pk) and area_pk != 0) else np.nan
 
         # --- centroid-side: nearest stick, neighbour, in-window count ---
-        # mirrors the profile-side above; empty CMZ covers both an absent
-        # Centroid Mode folder (cit always empty in that case) and a target
-        # with no detected centroid peak nearby.
+        # mirrors the profile-side above: distinguish an absent Centroid Mode
+        # folder from one that's present but simply didn't detect a peak here.
+        has_centroid_mode = "Centroid Mode" in modes
         nzm = s["cit"] > 0
         CMZ = s["cmz"][nzm]; CIT = s["cit"][nzm]; CN = s["cn"][nzm]
         s = dict(s); s["cmz"] = CMZ; s["cit"] = CIT; s["cn"] = CN
@@ -89,7 +94,7 @@ def main():
             inwin = [(s["cmz"][j], s["cit"][j]) for j in range(len(s["cmz"])) if abs(s["cmz"][j] - T) <= tol]
             ndet = int(s["cn"][ci])
         else:
-            warn.append("no centroid peak detected near target")
+            warn.append("centroid mode not available" if not has_centroid_mode else "no centroid peak detected near target")
             cmz = cit = np.nan; nb = (np.nan, np.nan, np.nan); inwin = []; ndet = 0
         ppm_cent = (cmz - T) / T * 1e6
 

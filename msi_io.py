@@ -17,6 +17,7 @@ figures, CSVs) are written to <run_dir>/output/ by default, or to --out if given
 """
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -53,13 +54,51 @@ def _find_imzml_files(d):
     return sorted(matches)
 
 
-def _find_sibling_ibd(imzml_path):
+def find_sibling_ibd(imzml_path):
     """The .ibd file sharing imzml_path's stem, matched case-insensitively on
     the extension since acquisition software isn't consistent about casing."""
     for f in imzml_path.parent.iterdir():
         if f.is_file() and f.stem == imzml_path.stem and f.suffix.lower() == ".ibd":
             return f
     return None
+
+
+def open_ibd_memmap(parser):
+    """Memory-map the .ibd sibling of an already-open ImzMLParser's .imzML
+    file, resolved the same case-insensitive way RunConfig validated it up
+    front. Pipeline stages used to find this file with
+    p.filename.replace(".imzML", ".ibd"), which silently produces a bogus
+    path for a lowercase .imzml file (or one under a directory whose name
+    happens to contain the string ".imzML") - find_sibling_ibd is immune to
+    both. RunConfig already checked the sibling exists before any parser was
+    opened, so a miss here means the file changed on disk mid-run - fail
+    loudly with RunConfigError rather than a confusing FileNotFoundError."""
+    imzml_path = Path(parser.filename)
+    ibd_path = find_sibling_ibd(imzml_path)
+    if ibd_path is None:
+        raise RunConfigError(
+            f"no matching .ibd file found for {imzml_path} (expected a sibling "
+            f"file with the same name and a .ibd extension, case-insensitive)"
+        )
+    return np.memmap(ibd_path, dtype=np.uint8, mode="r")
+
+
+@contextmanager
+def open_parser_and_ibd(imzml_path):
+    """Open an ImzMLParser for imzml_path together with its sibling .ibd
+    memmap, yielded as (parser, buf), closing both on exit. Parser file
+    handles were previously never closed, which leaves the underlying
+    .imzML/.ibd files locked on Windows."""
+    parser = ImzMLParser(str(imzml_path))
+    buf = None
+    try:
+        buf = open_ibd_memmap(parser)
+        yield parser, buf
+    finally:
+        if buf is not None:
+            buf._mmap.close()
+        if parser.m is not None:
+            parser.m.close()
 
 
 def mode_status(mode_dir):
@@ -76,7 +115,7 @@ def mode_status(mode_dir):
         return "broken", f"{mode_dir} exists but contains no .imzML file"
     if len(imzmls) > 1:
         return "broken", f"{mode_dir} contains multiple .imzML files, expected exactly one: {imzmls}"
-    ibd = _find_sibling_ibd(imzmls[0])
+    ibd = find_sibling_ibd(imzmls[0])
     if ibd is None:
         return "broken", f"{imzmls[0]} has no matching .ibd file (expected {imzmls[0].with_suffix('.ibd')})"
     return "ok", imzmls[0]

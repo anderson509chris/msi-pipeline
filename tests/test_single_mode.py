@@ -102,7 +102,7 @@ class SingleModeTests(unittest.TestCase):
         for T in TARGETS:
             m = metrics[T]
             self.assertEqual(m["modes"], ("Profile Mode",))
-            self.assertIn("no centroid peak detected near target", m["warning"])
+            self.assertIn("centroid mode not available", m["warning"])
             for field in ("apex", "ymax", "fwhm", "R", "pcen", "ppm_prof"):
                 self.assertFalse(math.isnan(m[field]), f"{field} unexpectedly NaN for target {T}")
             self.assertAlmostEqual(m["apex"], T, delta=PARAMS["grid"] * 2)

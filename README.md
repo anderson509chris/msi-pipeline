@@ -59,8 +59,11 @@ centroid mass error, stick overlay, and peak-count-in-window are not."*
 | `n_pixels_above_intensity_floor` | ✅ (or Centroid Mode if Profile Mode absent) | |
 
 When a metric's required mode is missing, its CSV columns are `NaN` and the
-row's `warning` column explains why (`"profile mode not available"` /
-`"no centroid peak detected near target"`).
+row's `warning` column explains why. Profile-side and centroid-side each
+distinguish "the mode isn't part of this run" from "the mode is present but
+this target has no signal/peak" — `"profile mode not available"` /
+`"no profile signal above intensity floor"` / `"centroid mode not available"`
+/ `"no centroid peak detected near target"`.
 
 You can also point the pipeline at a **parent folder containing several run
 folders** — it auto-discovers every subfolder with a usable `Profile Mode`

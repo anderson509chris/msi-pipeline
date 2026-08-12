@@ -1,9 +1,9 @@
 import warnings; warnings.filterwarnings("ignore")
 import argparse
+from contextlib import ExitStack
 import numpy as np, pickle
-from pyimzml.ImzMLParser import ImzMLParser
 from scipy.stats import rankdata
-from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array
+from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array, open_parser_and_ibd
 
 
 def main():
@@ -16,78 +16,80 @@ def main():
     NTOP, HALFWIN, GRID = cfg.ntop, cfg.halfwin, cfg.grid
     have_P, have_C = cfg.has_profile, cfg.has_centroid
 
-    P = ImzMLParser(str(cfg.imzml_path("Profile Mode"))) if have_P else None
-    C = ImzMLParser(str(cfg.imzml_path("Centroid Mode"))) if have_C else None
-    bP = np.memmap(P.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r') if have_P else None
-    bC = np.memmap(C.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r') if have_C else None
-    cP = [(c[0], c[1]) for c in P.coordinates] if have_P else []
-    cC = [(c[0], c[1]) for c in C.coordinates] if have_C else []
+    with ExitStack() as stack:
+        P = C = bP = bC = None
+        if have_P:
+            P, bP = stack.enter_context(open_parser_and_ibd(cfg.imzml_path("Profile Mode")))
+        if have_C:
+            C, bC = stack.enter_context(open_parser_and_ibd(cfg.imzml_path("Centroid Mode")))
+        cP = [(c[0], c[1]) for c in P.coordinates] if have_P else []
+        cC = [(c[0], c[1]) for c in C.coordinates] if have_C else []
 
-    # Rank/select pixels using whichever mode has per-pixel intensities from
-    # pass1; prefer profile when both exist, so both-mode output is unchanged.
-    rank_is_profile = have_P
-    rank_coords = cP if rank_is_profile else cC
-    pk = np.load(cfg.out("peak_prof.npy" if rank_is_profile else "peak_cent.npy"))
-    # rank-mode pixel coordinate -> the OTHER mode's own pixel index (only
-    # meaningful when both modes are present; the rank mode is indexed directly)
-    cmap = {}
-    if have_P and have_C:
-        other_coords = cC if rank_is_profile else cP
-        cmap = {xy: i for i, xy in enumerate(other_coords)}
+        # Rank/select pixels using whichever mode has per-pixel intensities from
+        # pass1; prefer profile when both exist, so both-mode output is unchanged.
+        rank_is_profile = have_P
+        rank_coords = cP if rank_is_profile else cC
+        pk = np.load(cfg.out("peak_prof.npy" if rank_is_profile else "peak_cent.npy"))
+        # rank-mode pixel coordinate -> the OTHER mode's own pixel index (only
+        # meaningful when both modes are present; the rank mode is indexed directly)
+        cmap = {}
+        if have_P and have_C:
+            other_coords = cC if rank_is_profile else cP
+            cmap = {xy: i for i, xy in enumerate(other_coords)}
 
-    # pixels must have signal (above the configured floor) for all targets
-    ok = (pk > cfg.intensity_floor).all(axis=0)
-    print("pixels with all", len(TARGETS), "detected:", ok.sum(), "of", pk.shape[1])
-    # percentile rank within the qualifying pixels, per metabolite
-    R = np.zeros((len(TARGETS), pk.shape[1]))
-    for i in range(len(TARGETS)):
-        r = np.full(pk.shape[1], np.nan); r[ok] = rankdata(pk[i, ok]) / ok.sum()
-        R[i] = r
-    score = np.where(ok, R.mean(axis=0), -1)          # balanced across all targets
-    worst = np.where(ok, np.nanmin(R, axis=0), -1)     # conservative
-    sel = np.argsort(score)[::-1][:NTOP]
-    print("common ROI: mean pct-rank %.3f  worst-metabolite pct-rank >= %.3f" % (score[sel].mean(), worst[sel].min()))
-    for i, T in enumerate(TARGETS):
-        old = np.argsort(pk[i])[::-1][:NTOP]
-        print(f"  {T}: overlap with its own top-{NTOP} = {len(set(sel) & set(old))}   "
-              f"mean int {pk[i, sel].mean():10.1f} vs {pk[i, old].mean():10.1f} ({pk[i, sel].mean() / pk[i, old].mean() * 100:.0f}%)")
+        # pixels must have signal (above the configured floor) for all targets
+        ok = (pk > cfg.intensity_floor).all(axis=0)
+        print("pixels with all", len(TARGETS), "detected:", ok.sum(), "of", pk.shape[1])
+        # percentile rank within the qualifying pixels, per metabolite
+        R = np.zeros((len(TARGETS), pk.shape[1]))
+        for i in range(len(TARGETS)):
+            r = np.full(pk.shape[1], np.nan); r[ok] = rankdata(pk[i, ok]) / ok.sum()
+            R[i] = r
+        score = np.where(ok, R.mean(axis=0), -1)          # balanced across all targets
+        worst = np.where(ok, np.nanmin(R, axis=0), -1)     # conservative
+        sel = np.argsort(score)[::-1][:NTOP]
+        print("common ROI: mean pct-rank %.3f  worst-metabolite pct-rank >= %.3f" % (score[sel].mean(), worst[sel].min()))
+        for i, T in enumerate(TARGETS):
+            old = np.argsort(pk[i])[::-1][:NTOP]
+            print(f"  {T}: overlap with its own top-{NTOP} = {len(set(sel) & set(old))}   "
+                  f"mean int {pk[i, sel].mean():10.1f} vs {pk[i, old].mean():10.1f} ({pk[i, sel].mean() / pk[i, old].mean() * 100:.0f}%)")
 
-    def getspec(p, buf, k):
-        mo, ml = p.mzOffsets[k], p.mzLengths[k]; io, il = p.intensityOffsets[k], p.intensityLengths[k]
-        return (np.array(read_binary_array(buf, mo, ml, p.mzPrecision), dtype=np.float64),
-                np.array(read_binary_array(buf, io, il, p.intensityPrecision), dtype=np.float64))
+        def getspec(p, buf, k):
+            mo, ml = p.mzOffsets[k], p.mzLengths[k]; io, il = p.intensityOffsets[k], p.intensityLengths[k]
+            return (np.array(read_binary_array(buf, mo, ml, p.mzPrecision), dtype=np.float64),
+                    np.array(read_binary_array(buf, io, il, p.intensityPrecision), dtype=np.float64))
 
-    out = {}
-    for ti, T in enumerate(TARGETS):
-        grid = np.arange(T - HALFWIN, T + HALFWIN, GRID); acc = np.zeros_like(grid); n1 = 0
-        smzs = []; sits = []; n2 = 0
-        for k in sel:
-            if have_P:
-                pidx = k if rank_is_profile else cmap.get(rank_coords[k])
-                if pidx is not None:
-                    mz, it = getspec(P, bP, pidx)
-                    a = np.searchsorted(mz, T - HALFWIN); b = np.searchsorted(mz, T + HALFWIN)
-                    if b - a > 2: acc += np.interp(grid, mz[a:b], it[a:b], left=0, right=0); n1 += 1
-            if have_C:
-                cidx = k if not rank_is_profile else cmap.get(rank_coords[k])
-                if cidx is not None:
-                    mzc, itc = getspec(C, bC, cidx)
-                    a2 = np.searchsorted(mzc, T - HALFWIN); b2 = np.searchsorted(mzc, T + HALFWIN)
-                    if b2 > a2: smzs.append(mzc[a2:b2]); sits.append(itc[a2:b2]); n2 += 1
-        prof = acc / max(n1, 1)
-        smz = np.concatenate(smzs) if smzs else np.array([]); sit = np.concatenate(sits) if sits else np.array([])
-        o = np.argsort(smz); smz = smz[o]; sit = sit[o]
-        cm = []; ci = []; cn = []; i = 0
-        while i < len(smz):
-            j = i
-            while j + 1 < len(smz) and (smz[j + 1] - smz[i]) / smz[i] * 1e6 < 4.0: j += 1
-            w = sit[i:j + 1]
-            cm.append(np.average(smz[i:j + 1], weights=w) if w.sum() > 0 else smz[i:j + 1].mean())
-            ci.append(w.sum() / max(n2, 1)); cn.append(j - i + 1); i = j + 1
-        out[T] = dict(grid=grid, prof=prof, cmz=np.array(cm), cit=np.array(ci), cn=np.array(cn),
-                      nprof=n1, ncent=n2, modes=cfg.modes, pixels=[rank_coords[k] for k in sel])
-    pickle.dump(out, open(cfg.out("spectra_common.pkl"), "wb"))
-    pickle.dump([rank_coords[k] for k in sel], open(cfg.out("common_pixels.pkl"), "wb"))
+        out = {}
+        for ti, T in enumerate(TARGETS):
+            grid = np.arange(T - HALFWIN, T + HALFWIN, GRID); acc = np.zeros_like(grid); n1 = 0
+            smzs = []; sits = []; n2 = 0
+            for k in sel:
+                if have_P:
+                    pidx = k if rank_is_profile else cmap.get(rank_coords[k])
+                    if pidx is not None:
+                        mz, it = getspec(P, bP, pidx)
+                        a = np.searchsorted(mz, T - HALFWIN); b = np.searchsorted(mz, T + HALFWIN)
+                        if b - a > 2: acc += np.interp(grid, mz[a:b], it[a:b], left=0, right=0); n1 += 1
+                if have_C:
+                    cidx = k if not rank_is_profile else cmap.get(rank_coords[k])
+                    if cidx is not None:
+                        mzc, itc = getspec(C, bC, cidx)
+                        a2 = np.searchsorted(mzc, T - HALFWIN); b2 = np.searchsorted(mzc, T + HALFWIN)
+                        if b2 > a2: smzs.append(mzc[a2:b2]); sits.append(itc[a2:b2]); n2 += 1
+            prof = acc / max(n1, 1)
+            smz = np.concatenate(smzs) if smzs else np.array([]); sit = np.concatenate(sits) if sits else np.array([])
+            o = np.argsort(smz); smz = smz[o]; sit = sit[o]
+            cm = []; ci = []; cn = []; i = 0
+            while i < len(smz):
+                j = i
+                while j + 1 < len(smz) and (smz[j + 1] - smz[i]) / smz[i] * 1e6 < 4.0: j += 1
+                w = sit[i:j + 1]
+                cm.append(np.average(smz[i:j + 1], weights=w) if w.sum() > 0 else smz[i:j + 1].mean())
+                ci.append(w.sum() / max(n2, 1)); cn.append(j - i + 1); i = j + 1
+            out[T] = dict(grid=grid, prof=prof, cmz=np.array(cm), cit=np.array(ci), cn=np.array(cn),
+                          nprof=n1, ncent=n2, modes=cfg.modes, pixels=[rank_coords[k] for k in sel])
+        pickle.dump(out, open(cfg.out("spectra_common.pkl"), "wb"))
+        pickle.dump([rank_coords[k] for k in sel], open(cfg.out("common_pixels.pkl"), "wb"))
     print("SAVED")
 
 

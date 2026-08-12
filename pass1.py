@@ -1,8 +1,7 @@
 import warnings; warnings.filterwarnings("ignore")
 import argparse, time
 import numpy as np, pickle
-from pyimzml.ImzMLParser import ImzMLParser
-from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array
+from msi_io import RunConfig, RunConfigError, add_run_dir_args, read_binary_array, open_parser_and_ibd
 
 
 def main():
@@ -16,31 +15,33 @@ def main():
     TARGETS = cfg.targets
     PPM = cfg.ppm
 
-    p = ImzMLParser(str(cfg.imzml_path(args.mode)))
-    buf = np.memmap(p.filename.replace(".imzML", ".ibd"), dtype=np.uint8, mode='r')
-    n = len(p.coordinates); print(args.tag, n, flush=True)
-    peak = np.zeros((len(TARGETS), n), dtype=np.float32)
-    mzo = np.array(p.mzOffsets); mzl = np.array(p.mzLengths)
-    io = np.array(p.intensityOffsets)
-    it_itemsize = np.dtype(p.intensityPrecision).itemsize
-    t0 = time.time()
-    for k in range(n):
-        L = mzl[k]
-        if L == 0: continue
-        o = mzo[k]
-        mz = read_binary_array(buf, o, L, p.mzPrecision)
-        for ti, T in enumerate(TARGETS):
-            tol = T * PPM * 1e-6
-            a = np.searchsorted(mz, T - tol); b = np.searchsorted(mz, T + tol)
-            if b > a:
-                peak[ti, k] = read_binary_array(buf, io[k] + a * it_itemsize, b - a, p.intensityPrecision).max()
-        if k % 4000 == 0: print(k, round(time.time() - t0, 1), flush=True)
-    print(args.tag, "DONE", round(time.time() - t0, 1), flush=True)
+    with open_parser_and_ibd(cfg.imzml_path(args.mode)) as (p, buf):
+        n = len(p.coordinates); print(args.tag, n, flush=True)
+        peak = np.zeros((len(TARGETS), n), dtype=np.float32)
+        mzo = np.array(p.mzOffsets); mzl = np.array(p.mzLengths)
+        io = np.array(p.intensityOffsets)
+        it_itemsize = np.dtype(p.intensityPrecision).itemsize
+        t0 = time.time()
+        for k in range(n):
+            L = mzl[k]
+            if L == 0: continue
+            o = mzo[k]
+            mz = read_binary_array(buf, o, L, p.mzPrecision)
+            for ti, T in enumerate(TARGETS):
+                tol = T * PPM * 1e-6
+                a = np.searchsorted(mz, T - tol); b = np.searchsorted(mz, T + tol)
+                if b > a:
+                    peak[ti, k] = read_binary_array(buf, io[k] + a * it_itemsize, b - a, p.intensityPrecision).max()
+            if k % 4000 == 0: print(k, round(time.time() - t0, 1), flush=True)
+        print(args.tag, "DONE", round(time.time() - t0, 1), flush=True)
+        coords = [(c[0], c[1]) for c in p.coordinates]
+
     np.save(cfg.out(f"peak_{args.tag}.npy"), peak)
     with open(cfg.out(f"coords_{args.tag}.pkl"), "wb") as f:
-        pickle.dump([(c[0], c[1]) for c in p.coordinates], f)
+        pickle.dump(coords, f)
     for ti, T in enumerate(TARGETS):
-        print(f"  {T}: {(peak[ti] > 0).sum()} px, max {peak[ti].max():.0f}", flush=True)
+        above_floor = int((peak[ti] > cfg.intensity_floor).sum())
+        print(f"  {T}: {above_floor} px above intensity floor ({cfg.intensity_floor:g}), max {peak[ti].max():.0f}", flush=True)
 
 
 if __name__ == "__main__":
