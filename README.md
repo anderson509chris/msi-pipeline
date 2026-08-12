@@ -137,6 +137,13 @@ so you can see where on the tissue the reported FWHM and mass error came
 from. It only needs pass1's output to run, so it can be run standalone right
 after pass1, before pass2/common/metrics.
 
+![Example ion image: a target's intensity across the tissue, with the ROI pixels circled, an unsampled region shown in grey, and a hot pixel that stays visible without blowing out the colour scale](docs/images/ion_image_example.png)
+
+*(Synthetic example - cyan circles mark the per-target ROI pixels
+(`--roi per-target`); the grey block is an unsampled region; the pale square
+top-right is a deliberately extreme "hot" pixel that the 99th-percentile
+colour clip keeps from washing out the rest of the image.)*
+
 ```bash
 python ionimage.py "<run_dir>"                             # per-target ROI overlay (default)
 python ionimage.py "<run_dir>" --mode cent                  # render Centroid Mode's peak_cent.npy instead
