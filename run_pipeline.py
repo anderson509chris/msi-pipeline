@@ -57,7 +57,7 @@ def discover_runs(path):
     return candidates
 
 
-def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, cfg=None):
+def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, show_roi_overlay=True, cfg=None):
     """The ordered (label, cmd) pairs that make up one full run. Shared by the
     CLI driver below and the Streamlit GUI (app.py), so both stay in sync.
     Pass1 only runs for modes actually present; common/pass2/metrics/plot
@@ -69,6 +69,7 @@ def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, cfg=No
     if out_dir: tail += ["--out", str(out_dir)]
     if targets_path: tail += ["--targets", str(targets_path)]
     box_flag = [] if show_metrics_box else ["--no-metrics-box"]
+    roi_flag = [] if show_roi_overlay else ["--roi", "none"]
 
     cmds = []
     if cfg.has_profile:
@@ -78,7 +79,7 @@ def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, cfg=No
     cmds += [
         ("common", [sys.executable, str(HERE / "common.py"), str(run_dir)] + tail),
         ("pass2", [sys.executable, str(HERE / "pass2.py"), str(run_dir)] + tail),
-        ("ion images", [sys.executable, str(HERE / "ionimage.py"), str(run_dir)] + tail),
+        ("ion images", [sys.executable, str(HERE / "ionimage.py"), str(run_dir)] + tail + roi_flag),
         ("metrics", [sys.executable, str(HERE / "metrics.py"), str(run_dir)] + tail),
         ("metrics (common)", [sys.executable, str(HERE / "metrics.py"), str(run_dir), "--common"] + tail),
         ("plot", [sys.executable, str(HERE / "plot.py"), str(run_dir)] + tail + box_flag),
@@ -93,11 +94,11 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 
-def process_run(run_dir, out_dir, targets_path, show_metrics_box=True):
+def process_run(run_dir, out_dir, targets_path, show_metrics_box=True, show_roi_overlay=True):
     clean_out_dir(run_dir, out_dir)
     cfg = RunConfig(run_dir, out_dir, targets_path)
     print(cfg.mode_banner(), flush=True)
-    for _label, cmd in stage_commands(run_dir, out_dir, targets_path, show_metrics_box, cfg=cfg):
+    for _label, cmd in stage_commands(run_dir, out_dir, targets_path, show_metrics_box, show_roi_overlay, cfg=cfg):
         run(cmd)
 
 
@@ -108,6 +109,7 @@ def main():
     ap.add_argument("--targets", default=None, help="targets.json to use for every run processed (default: each run's own <run_dir>/targets.json, else built-in defaults)")
     ap.add_argument("--keep-going", action="store_true", help="If one run folder fails, continue with the rest instead of stopping")
     ap.add_argument("--no-metrics-box", action="store_true", help="Hide the FWHM/R/peak-count text box on the generated figures")
+    ap.add_argument("--no-roi-overlay", action="store_true", help="Don't circle the top-N ROI pixels on the ion images")
     args = ap.parse_args()
 
     path = Path(args.path).expanduser().resolve()
@@ -121,7 +123,7 @@ def main():
     failed = []
     for r in runs:
         try:
-            process_run(r, out_dir, args.targets, show_metrics_box=not args.no_metrics_box)
+            process_run(r, out_dir, args.targets, show_metrics_box=not args.no_metrics_box, show_roi_overlay=not args.no_roi_overlay)
         except (subprocess.CalledProcessError, RunConfigError) as e:
             print(f"!!! run failed: {r} ({e})", file=sys.stderr)
             failed.append(r)

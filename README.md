@@ -83,7 +83,9 @@ This opens in your browser at `http://localhost:8501`. From there:
 2. **Target m/z list** — an editable table (add/remove rows) of the m/z
    values to extract, with optional name/formula labels used in the figures
    and CSV. An **Advanced parameters** section exposes top-N pixels, window
-   size, grid spacing, and PPM tolerance.
+   size, grid spacing, and PPM tolerance. Checkboxes below it toggle the
+   metrics text box on the spectrum figures and the ROI-pixel circles on the
+   ion images.
 3. **Run pipeline** — runs all stages for every checked run folder, streaming
    live log output and a progress bar. Each run's `output/` folder is wiped
    first, so results always match exactly the current target list.
@@ -109,6 +111,8 @@ Options:
   processing a single run)
 - `--targets targets.json` — target list/params to use (default: each run's
   own `<run_dir>/targets.json`, else the built-in defaults)
+- `--no-metrics-box` — hide the FWHM/R/peak-count text box on the spectrum figures
+- `--no-roi-overlay` — don't circle the top-N ROI pixels on the ion images
 
 Or run individual stages yourself (each also accepts `--out` / `--targets`):
 

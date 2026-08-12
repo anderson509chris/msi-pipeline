@@ -152,6 +152,12 @@ show_metrics_box = st.checkbox(
 )
 st.session_state.show_metrics_box = show_metrics_box
 
+show_roi_overlay = st.checkbox(
+    "Circle the ROI pixels used for each target on the ion images",
+    value=st.session_state.get("show_roi_overlay", True),
+)
+st.session_state.show_roi_overlay = show_roi_overlay
+
 # --- run ---------------------------------------------------------
 st.subheader("3. Run")
 run_clicked = st.button("Run pipeline", type="primary", disabled=not selected_runs)
@@ -176,7 +182,7 @@ if run_clicked:
     stage_lists = {}
     for run_dir in selected_runs:
         try:
-            stage_lists[run_dir] = stage_commands(run_dir, None, targets_path, show_metrics_box, cfg=run_cfgs.get(run_dir))
+            stage_lists[run_dir] = stage_commands(run_dir, None, targets_path, show_metrics_box, show_roi_overlay, cfg=run_cfgs.get(run_dir))
         except RunConfigError as e:
             st.error(f"{run_dir.name}: {e}")
     total_stages = sum(len(v) for v in stage_lists.values())
