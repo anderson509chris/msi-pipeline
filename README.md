@@ -116,12 +116,41 @@ Or run individual stages yourself (each also accepts `--out` / `--targets`):
 python pass1.py "<run_dir>" "Profile Mode" prof   # per-pixel intensity at each target
 python common.py "<run_dir>"                      # common top-N ROI across all targets
 python pass2.py "<run_dir>"                        # per-target top-N ROI
+python ionimage.py "<run_dir>"                     # ion images -> Fig_S2_ion_images.png/.pdf
 python metrics.py "<run_dir>"                      # peak-shape metrics -> metrics.pkl
 python metrics.py "<run_dir>" --common             #   ... -> metrics_common.pkl
 python plot.py "<run_dir>"                         # figures + peak_metrics.csv
 python plot_c.py "<run_dir>"                       # common-ROI figures + CSV
 python plot_cc.py "<run_dir>"                      # common-ROI figures (clean variant)
 ```
+
+### Ion images
+
+`ionimage.py` renders each target's per-pixel intensity (from pass1's
+`peak_<tag>.npy` + `coords_<tag>.pkl`) as a 2D image of the tissue, with the
+top-N pixels actually averaged into that target's spectrum outlined on top -
+so you can see where on the tissue the reported FWHM and mass error came
+from. It only needs pass1's output to run, so it can be run standalone right
+after pass1, before pass2/common/metrics.
+
+```bash
+python ionimage.py "<run_dir>"                             # per-target ROI overlay (default)
+python ionimage.py "<run_dir>" --mode cent                  # render Centroid Mode's peak_cent.npy instead
+python ionimage.py "<run_dir>" --roi common                 # outline the shared common ROI instead
+python ionimage.py "<run_dir>" --roi none                   # no ROI overlay
+python ionimage.py "<run_dir>" --vmax-percentile 95         # tighter colour clip (default 99)
+python ionimage.py "<run_dir>" --no-roi-legend              # hide the "n=N ROI px" caption
+```
+
+Unsampled pixels are left `NaN` (rendered as a distinct grey, not folded into
+the colour scale) rather than zero, since a real zero-intensity measurement
+is valid data and shouldn't look like "not acquired". The colour scale
+defaults to the 99th percentile of above-floor pixel values, not the
+maximum, so a single very bright pixel doesn't flatten the rest of the image
+into a dark rectangle - the applied percentile is stated in the colorbar
+label. Orientation (`origin='upper'`, 1-based `(x, y)`) follows the imzML
+coordinate convention and may not match how your acquisition software
+displays the same data on screen.
 
 ## 5. `targets.json`
 
@@ -157,7 +186,8 @@ Everything lands in `<run_dir>/output/`:
 | `Fig_S1_profile_vs_centroid.png/pdf` | Combined figure, one panel per target, per-target top-N ROI |
 | `Fig_S1b_common_ROI.png/pdf` | Same, but one common ROI shared across all targets |
 | `Fig_S1c_common_ROI_clean.png/pdf` | Common-ROI figure, no metrics text box |
-| `spectrum_mz*.png`, `commonROI_mz*.png`, `commonROIclean_mz*.png` | Individual per-target panels |
+| `Fig_S2_ion_images.png/pdf` | Combined ion-image figure, one panel per target, with ROI overlay |
+| `spectrum_mz*.png`, `commonROI_mz*.png`, `commonROIclean_mz*.png`, `ion_image_mz*.png` | Individual per-target panels |
 | `peak_metrics*.csv` | Apex m/z, FWHM, resolving power, mass error, etc. per target |
 | `spectra*.pkl`, `metrics*.pkl`, `peak_prof.npy`, `peak_cent.npy`, `coords_prof.pkl`, `coords_cent.pkl`, `common_pixels.pkl` | Intermediate data, re-used by later stages (`peak_prof.npy`/`peak_cent.npy` only exist for modes actually present) |
 

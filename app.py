@@ -232,6 +232,18 @@ if completed:
         st.markdown(f"**{run_dir.name}**")
         st.caption(f"Saved to: `{out_dir}`")
 
+        ion_pngs = sorted(out_dir.glob("ion_image_mz*.png"))
+        if ion_pngs:
+            st.markdown("*Ion images*")
+            cols = st.columns(min(4, len(ion_pngs)))
+            for i, png in enumerate(ion_pngs):
+                col = cols[i % len(cols)]
+                col.image(str(png), caption=png.stem.replace("ion_image_mz", "m/z "))
+                col.download_button(
+                    "Download PNG", data=png.read_bytes(), file_name=png.name,
+                    mime="image/png", key=f"dl_ion_{run_dir}_{png.name}",
+                )
+
         pngs = sorted(out_dir.glob("spectrum_mz*.png"))
         if pngs:
             cols = st.columns(min(4, len(pngs)))

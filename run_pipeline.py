@@ -1,5 +1,5 @@
-"""Chain pass1 -> common -> pass2 -> metrics -> plot across one run folder, or every
-run folder found under a parent directory of data runs.
+"""Chain pass1 -> common -> pass2 -> ion images -> metrics -> plot across one run
+folder, or every run folder found under a parent directory of data runs.
 
 A "run folder" is any directory containing a usable 'Profile Mode' and/or
 'Centroid Mode' subfolder (each holding one .imzML + .ibd pair) - either one
@@ -78,6 +78,7 @@ def stage_commands(run_dir, out_dir, targets_path, show_metrics_box=True, cfg=No
     cmds += [
         ("common", [sys.executable, str(HERE / "common.py"), str(run_dir)] + tail),
         ("pass2", [sys.executable, str(HERE / "pass2.py"), str(run_dir)] + tail),
+        ("ion images", [sys.executable, str(HERE / "ionimage.py"), str(run_dir)] + tail),
         ("metrics", [sys.executable, str(HERE / "metrics.py"), str(run_dir)] + tail),
         ("metrics (common)", [sys.executable, str(HERE / "metrics.py"), str(run_dir), "--common"] + tail),
         ("plot", [sys.executable, str(HERE / "plot.py"), str(run_dir)] + tail + box_flag),
