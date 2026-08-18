@@ -10,7 +10,7 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 8, "axes.linewid
 CP = "#1f4e79"; CC = "#c0392b"; CB = "#f2b705"
 
 
-def panel(axL, axR, T, letter, d, mt, ppm):
+def panel(axL, axR, T, letter, d, mt, ppm, halfwin):
     s = d[T]; m = mt[T]; g = s["grid"]; y = s["prof"]
     tol = T * ppm * 1e-6
     has_profile = not np.isnan(m["ymax"])
@@ -23,7 +23,7 @@ def panel(axL, axR, T, letter, d, mt, ppm):
         ymax = 1.0
     for ax, halfppm in ((axL, None), (axR, 25)):
         if halfppm is None:
-            lo, hi = T - 0.06, T + 0.06
+            lo, hi = T - halfwin, T + halfwin
         else:
             lo, hi = T - T * halfppm * 1e-6, T + T * halfppm * 1e-6
         w = (g >= lo) & (g <= hi)
@@ -48,7 +48,7 @@ def panel(axL, axR, T, letter, d, mt, ppm):
     axR.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, p: f"{v:.4f}"))
     axL.set_title(f"{letter}   m/z {T:.4f}", loc="left", fontsize=9.2, fontweight="bold", pad=4)
     axR.set_title("zoom ±25 ppm", loc="left", fontsize=7.5, color="0.35", pad=4)
-    caption = f"±0.06 Da window · n = {s['nprof']} common pixels\ngrey = same trace ×100 (baseline check)" if has_profile \
+    caption = f"±{halfwin:g} Da window · n = {s['nprof']} common pixels\ngrey = same trace ×100 (baseline check)" if has_profile \
         else "no profile data for this target"
     axL.text(.985, .96, caption, transform=axL.transAxes, ha="right", va="top", fontsize=6.6, color="0.35", linespacing=1.5)
 
@@ -73,7 +73,7 @@ def main():
                      f"Gold band = ±{cfg.ppm:g} ppm integration window.   Dashed line = theoretical m/z.",
             fontsize=7.6, va="top", color="0.3", linespacing=1.7)
     for i, (T, L) in enumerate(zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")):
-        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt, cfg.ppm)
+        panel(fig.add_subplot(gs[i + 1, 0]), fig.add_subplot(gs[i + 1, 1]), T, L, d, mt, cfg.ppm, cfg.halfwin)
     fig.text(.5, .008, cfg.mode_banner(), ha="center", va="bottom", fontsize=6, color="0.4")
     fig.savefig(cfg.out("Fig_S1c_common_ROI_clean.pdf"))
     fig.savefig(cfg.out("Fig_S1c_common_ROI_clean.png"), dpi=300)
@@ -83,7 +83,7 @@ def main():
     for T, L in zip(TARGETS, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
         f = plt.figure(figsize=(9.4, 3.3))
         g2 = f.add_gridspec(1, 2, width_ratios=[1.35, 1], wspace=.22, left=.085, right=.98, top=.85, bottom=.2)
-        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt, cfg.ppm)
+        panel(f.add_subplot(g2[0, 0]), f.add_subplot(g2[0, 1]), T, L, d, mt, cfg.ppm, cfg.halfwin)
         f.text(.5, .01, cfg.mode_banner(), ha="center", va="bottom", fontsize=5.5, color="0.4")
         f.savefig(cfg.out(f"commonROIclean_mz{T:.4f}.png"), dpi=300); plt.close(f)
 

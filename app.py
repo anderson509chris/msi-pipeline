@@ -22,12 +22,30 @@ HERE = Path(__file__).resolve().parent
 st.set_page_config(page_title="imzML Peakchecker", layout="wide")
 st.title("imzML Peakchecker target extraction")
 
-if "targets_df" not in st.session_state:
-    st.session_state.targets_df = pd.DataFrame(DEFAULT_TARGETS["targets"])
-if "params" not in st.session_state:
-    st.session_state.params = dict(DEFAULT_TARGETS["params"])
 if "path_str" not in st.session_state:
     st.session_state.path_str = ""
+if "targets_dirty" not in st.session_state:
+    st.session_state.targets_dirty = False
+
+
+def load_targets_for_runs(runs):
+    """What the target table should show for this run selection: the single
+    selected run's own targets.json when there's exactly one candidate run and
+    it has one, else the built-in defaults. Purely a display default - an
+    untouched table means "use each run's own targets.json at run time" (see
+    targets_dirty below), not "use this snapshot"."""
+    if len(runs) == 1:
+        tp = runs[0] / "targets.json"
+        if tp.is_file():
+            try:
+                return json.loads(tp.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+    return DEFAULT_TARGETS
+
+
+def mark_targets_dirty():
+    st.session_state.targets_dirty = True
 
 
 def browse_folder():
@@ -121,12 +139,24 @@ if runs:
                 st.warning(cfg_r.mode_banner())
 
 # --- targets ---------------------------------------------------------
+runs_key = tuple(str(r) for r in runs)
+if st.session_state.get("targets_loaded_for") != runs_key:
+    loaded = load_targets_for_runs(runs)
+    st.session_state.targets_df = pd.DataFrame(loaded["targets"])
+    st.session_state.params = dict(loaded["params"])
+    st.session_state.targets_dirty = False
+    st.session_state.targets_loaded_for = runs_key
+
 st.subheader("2. Target m/z list")
-st.caption("Edit, add, or remove rows. Names/formulas are only used for figure labels and the output CSV.")
+st.caption("Edit, add, or remove rows. Names/formulas are only used for figure labels and the output CSV. "
+           "Shown here is the selected run's own targets.json (or the built-in defaults if it has none) - "
+           "leave it untouched to use each run's own file as-is, or edit it to apply the same list to every "
+           "selected run.")
 st.session_state.targets_df = st.data_editor(
     st.session_state.targets_df,
     num_rows="dynamic",
     use_container_width=True,
+    on_change=mark_targets_dirty,
     column_config={
         "mz": st.column_config.NumberColumn("m/z", format="%.4f", required=True),
         "name": st.column_config.TextColumn("Name"),
@@ -136,14 +166,15 @@ st.session_state.targets_df = st.data_editor(
 
 with st.expander("Advanced parameters"):
     c1, c2, c3, c4, c5 = st.columns(5)
-    st.session_state.params["ntop"] = c1.number_input("Top-N pixels", min_value=1, value=int(st.session_state.params["ntop"]), step=10)
-    st.session_state.params["halfwin"] = c2.number_input("Half window (Da)", value=float(st.session_state.params["halfwin"]), format="%.4f")
-    st.session_state.params["grid"] = c3.number_input("Grid spacing (Da)", value=float(st.session_state.params["grid"]), format="%.6f")
-    st.session_state.params["ppm"] = c4.number_input("PPM tolerance (pass1)", value=float(st.session_state.params["ppm"]))
+    st.session_state.params["ntop"] = c1.number_input("Top-N pixels", min_value=1, value=int(st.session_state.params["ntop"]), step=10, on_change=mark_targets_dirty)
+    st.session_state.params["halfwin"] = c2.number_input("Half window (Da)", value=float(st.session_state.params["halfwin"]), format="%.4f", on_change=mark_targets_dirty)
+    st.session_state.params["grid"] = c3.number_input("Grid spacing (Da)", value=float(st.session_state.params["grid"]), format="%.6f", on_change=mark_targets_dirty)
+    st.session_state.params["ppm"] = c4.number_input("PPM tolerance (pass1)", value=float(st.session_state.params["ppm"]), on_change=mark_targets_dirty)
     st.session_state.params["intensity_floor"] = c5.number_input(
         "Intensity floor (counts)", min_value=0.0,
         value=float(st.session_state.params.get("intensity_floor", 0.0)),
         help="Pixels at or below this raw intensity are treated as noise and excluded from top-N selection and pixel counts.",
+        on_change=mark_targets_dirty,
     )
 
 show_metrics_box = st.checkbox(
@@ -168,14 +199,21 @@ if run_clicked:
         st.error("Add at least one target m/z first.")
         st.stop()
 
-    targets_payload = {
-        "sample_name": base_path.name,
-        "instrument_desc": "",
-        "targets": targets_df.fillna("").to_dict("records"),
-        "params": st.session_state.params,
-    }
-    targets_path = Path(tempfile.mkdtemp()) / "targets.json"
-    targets_path.write_text(json.dumps(targets_payload, indent=2))
+    if st.session_state.targets_dirty:
+        # The user edited the table/params - apply that list to every selected
+        # run. No sample_name here: each run falls back to its own folder name
+        # (RunConfig), rather than stamping one run's/parent's name on all of them.
+        targets_payload = {
+            "instrument_desc": "",
+            "targets": targets_df.fillna("").to_dict("records"),
+            "params": st.session_state.params,
+        }
+        targets_path = Path(tempfile.mkdtemp()) / "targets.json"
+        targets_path.write_text(json.dumps(targets_payload, indent=2))
+    else:
+        # Untouched table: use each run's own <run_dir>/targets.json (or the
+        # built-in defaults if it has none), same as the CLI's default behavior.
+        targets_path = None
 
     # Stage count varies per run (single-mode runs skip one pass1 stage), so
     # build each run's command list up front rather than assuming a uniform count.
